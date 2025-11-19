@@ -28,6 +28,7 @@ const JudicialModule = lazy(() => import('./components/JudicialModule'));
 const SocialMediaModule = lazy(() => import('./components/SocialMediaModule'));
 const TimelineModule = lazy(() => import('./components/TimelineModule'));
 const OcrModule = lazy(() => import('./components/OcrModule'));
+const ResearchModule = lazy(() => import('./components/ResearchModule'));
 
 // Lazily load settings components
 const DashboardSettings = lazy(() => import('./components/settings/DashboardSettings'));
@@ -48,6 +49,7 @@ const AppRouter: React.FC = () => {
   const [municipalities, setMunicipalities] = useState<string[]>(initialMunicipalities);
   const [isLoading, setIsLoading] = useState(false);
   const [activeModules, setActiveModules] = useState<Module[]>([]);
+  const [isLoadingModules, setIsLoadingModules] = useState(true);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,12 +61,20 @@ const AppRouter: React.FC = () => {
   // Ignora alterações em 'usage', 'lastUsageReset', etc.
   useEffect(() => {
     const syncModules = async () => {
+        setIsLoadingModules(true);
         if (currentUser) {
-            const modules = await dbService.getUserActiveModules(currentUser);
-            setActiveModules(modules);
+            try {
+                // Pequeno delay artificial para garantir que o shimmer seja visto em transições rápidas, melhorando UX
+                await new Promise(r => setTimeout(r, 500));
+                const modules = await dbService.getUserActiveModules(currentUser);
+                setActiveModules(modules);
+            } catch (e) {
+                console.error("Error syncing modules", e);
+            }
         } else {
             setActiveModules([]);
         }
+        setIsLoadingModules(false);
     };
 
     syncModules();
@@ -148,6 +158,7 @@ const AppRouter: React.FC = () => {
             municipality={municipality}
             onChangeMunicipality={handleChangeMunicipality}
             modules={activeModules}
+            isLoading={isLoadingModules}
         />
         <div className="flex-1 flex flex-col overflow-hidden">
             <Header modules={activeModules} />
@@ -156,6 +167,8 @@ const AppRouter: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard" element={<Dashboard municipality={municipality || ''} />} />
                       <Route path="/dashboard/settings" element={<DashboardSettings />} />
+                      
+                      <Route path="/research" element={<ResearchModule />} />
                       
                       {/* Rota da Visão de Rede Política (Index) */}
                       <Route path="/political" element={<PoliticalNetwork />} />

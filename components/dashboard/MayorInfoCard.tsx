@@ -23,10 +23,10 @@ const MayorInfoCard: React.FC<MayorInfoCardProps> = ({ official, isLoading }) =>
             <img 
                 src={official.avatarUrl} 
                 alt={`Foto de ${official.name}`} 
-                className="w-20 h-20 rounded-full object-cover border-2 border-brand-accent flex-shrink-0"
+                className="w-20 h-20 rounded-full object-cover border-2 border-brand-accent flex-shrink-0 bg-brand-primary"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(official.name)}&background=random&color=fff&size=128`;
+                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(official.name)}&background=random&color=fff&size=128&font-size=0.4`;
                 }}
             />
             <div className="ml-4">

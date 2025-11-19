@@ -69,7 +69,24 @@ export interface ElectoralMapData {
   description: string;
 }
 
-// Interface principal para o político, agora muito mais detalhada.
+// Novos tipos para detalhamento político
+export interface VotingRecord {
+    title: string;
+    date: string;
+    vote: 'Favorável' | 'Contrário' | 'Abstenção' | 'Ausente';
+    description?: string;
+    impact: 'Alto' | 'Médio' | 'Baixo';
+}
+
+export interface NewsItem {
+    headline: string;
+    source: string;
+    date: string;
+    sentiment: 'Positivo' | 'Negativo' | 'Neutro';
+    url: string;
+}
+
+// Interface principal para o político
 export interface Politician {
   id: string;
   name: string;
@@ -78,14 +95,17 @@ export interface Politician {
   position: string;
   imageUrl: string;
   bio: string;
-  salary?: number; // Salário mensal atual
+  salary?: number; // Salário mensal bruto estimado
   socialMedia?: {
       instagram?: string;
       facebook?: string;
       twitter?: string;
       followers?: number;
+      engagementRate?: string;
   };
-  monitored?: boolean; // Novo campo para monitoramento constante
+  votingHistory?: VotingRecord[]; // Histórico de votações ou decisões administrativas
+  latestNews?: NewsItem[]; // Notícias recentes
+  monitored?: boolean;
   risks: {
     judicial: RiskLevel;
     financial: RiskLevel;
@@ -105,15 +125,70 @@ export interface Politician {
   electoralMap: ElectoralMapData;
 }
 
-// Resposta do serviço de dados para o módulo político
 export interface PoliticianDataResponse {
   data: Politician;
   timestamp: number;
   source: 'api' | 'mock' | 'cache';
 }
 
-// --- Fim dos Tipos do Módulo de Análise Política ---
+// --- Tipos Expandidos para Empresas e Contratos ---
 
+export interface CompanyPartner {
+    name: string;
+    role: string; // Sócio-Administrador, Sócio, etc.
+    isPoliticallyExposed: boolean; // PEP
+}
+
+export interface CompanyAlert {
+    type: 'Laranja' | 'Conflito de Interesse' | 'Recém-Criada' | 'Capital Incompatível';
+    severity: 'Alta' | 'Média' | 'Baixa';
+    description: string;
+}
+
+export interface Company {
+  id: number;
+  name:string;
+  cnpj: string;
+  cnae?: string; // Atividade econômica principal
+  foundingDate?: string;
+  shareCapital?: number; // Capital Social
+  partners?: CompanyPartner[]; // Quadro de Sócios
+  totalContractsValue: number;
+  riskScore: number;
+  alerts?: CompanyAlert[]; // Alertas de irregularidade
+  address?: string;
+}
+
+export interface Contract {
+    id: string;
+    companyName: string;
+    companyCnpj?: string;
+    value: number;
+    object: string;
+    startDate: string;
+    endDate: string;
+    status?: 'Ativo' | 'Encerrado' | 'Suspenso';
+}
+
+// --- Tipos Expandidos para Jurídico ---
+
+export interface LawsuitParty {
+    name: string;
+    type: 'Autor' | 'Réu';
+    entityType: 'Pessoa' | 'Empresa' | 'Órgão';
+    systemId?: string; // ID interno se já existir no sistema
+}
+
+export interface Lawsuit {
+  id: string;
+  parties: string; // String formatada para exibição rápida
+  involvedParties?: LawsuitParty[]; // Estruturado para linkagem
+  court: string;
+  class?: string; // Ação Civil Pública, Improbidade, etc.
+  status: 'Ongoing' | 'Finished' | 'Suspended';
+  lastUpdate?: string;
+  description?: string;
+}
 
 export interface Employee {
   id: number;
@@ -126,37 +201,35 @@ export interface Employee {
   riskAnalysis: string;
 }
 
-export interface Company {
-  id: number;
-  name:string;
-  cnpj: string;
-  totalContractsValue: number;
-  riskScore: number;
+// --- Tipos Expandidos para Social Media ---
+
+export interface SocialTrend {
+    topic: string;
+    sentiment: 'Positive' | 'Negative' | 'Neutral';
+    volume: number;
 }
 
-export interface Contract {
+export interface SocialAlert {
     id: string;
-    companyName: string;
-    value: number;
-    object: string;
-    startDate: string;
-    endDate: string;
-}
-
-export interface Lawsuit {
-  id: string;
-  parties: string;
-  court: string;
-  status: 'Ongoing' | 'Finished' | 'Suspended';
+    type: 'Pico de Negatividade' | 'Acusação Grave' | 'Viral';
+    message: string;
+    timestamp: string;
+    severity?: 'Alta' | 'Média' | 'Baixa';
 }
 
 export interface SocialPost {
     id: number;
-    platform: 'Facebook' | 'Instagram';
+    platform: 'Facebook' | 'Instagram' | 'Twitter';
     author: string;
     content: string;
     sentiment: 'Positive' | 'Neutral' | 'Negative';
     timestamp: string;
+    url?: string;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    thumbnailUrl?: string; // Para vídeos/reels
+    isVideo?: boolean;
 }
 
 export interface TimelineEvent {
@@ -164,10 +237,10 @@ export interface TimelineEvent {
   date: string;
   title: string;
   description: string;
-  category: 'Nomination' | 'Contract' | 'Lawsuit' | 'Social Media';
+  category: 'Nomination' | 'Contract' | 'Lawsuit' | 'Social Media' | 'Political';
   icon: string;
-  relatedId?: string; // ID para linkar ao módulo específico (ex: ID do contrato, ID do processo)
-  relatedModule?: string; // Nome do módulo de destino para Deep Linking
+  relatedId?: string; 
+  relatedModule?: string; 
 }
 
 export interface ChatMessage {
@@ -178,7 +251,6 @@ export interface ChatMessage {
 
 export type UserRole = 'admin' | 'user';
 
-// --- NOVOS TIPOS PARA PLANOS E RECURSOS ---
 export type FeatureKey = 'ai_analysis' | 'advanced_search' | 'data_export' | 'own_api_key' | 'priority_support';
 
 export interface Feature {
@@ -191,26 +263,22 @@ export interface UserPlan {
     id: string;
     name: string;
     features: FeatureKey[];
-    modules: string[]; // Lista de IDs dos módulos permitidos para este plano
-    requestLimit: number; // Limite de requisições diárias (-1 para ilimitado)
+    modules: string[]; 
+    requestLimit: number; 
 }
-// ------------------------------------------
 
 export interface User {
     id: number;
     username: string;
-    password?: string; // Adicionado senha (opcional na interface, mas usado na lógica)
+    password?: string;
     email?: string; 
-    avatarUrl?: string; // Adicionado Avatar
+    avatarUrl?: string; 
     role: UserRole;
     status: 'Ativo' | 'Inativo';
     planId: string; 
     planExpiration?: string; 
-    
-    // Configurações pessoais e uso
     apiKey?: string; 
     canUseOwnApiKey?: boolean; 
-    
     usage: number; 
     lastUsageReset?: string; 
 }
@@ -219,9 +287,9 @@ export interface ApiKey {
   id: number;
   key: string;
   status: 'Ativa' | 'Inativa';
-  type: 'System' | 'User'; // System keys cannot be deleted easily
-  usageCount: number; // For monitoring
-  lastUsed?: string; // Timestamp
+  type: 'System' | 'User'; 
+  usageCount: number; 
+  lastUsed?: string; 
 }
 
 export interface DbConfig {
@@ -271,7 +339,7 @@ export interface Module {
   icon: string;
   active: boolean;
   hasSettings?: boolean;
-  rules?: string; // Regras específicas da IA para este módulo (pode ser JSON stringified)
+  rules?: string; 
   updateFrequency?: UpdateFrequency;
   lastUpdate?: string; 
 }
@@ -284,7 +352,6 @@ export interface LogEntry {
   user?: string;
 }
 
-// --- Tipos do Dashboard (versão antiga, para compatibilidade) ---
 export interface WelcomeWidgetData {
   municipality: string;
   activeModulesCount: number;
@@ -308,9 +375,6 @@ export interface SocialWidgetData {
   latestNegativePosts: { author: string; platform: string; content: string }[];
 }
 
-
-// --- Tipos do Dashboard de Análise Estratégica ---
-
 export interface DashboardStats {
   facebook: number;
   instagram: number;
@@ -326,8 +390,8 @@ export interface Official {
     start: string;
     end: string;
   };
-  avatarUrl: string; // URL para uma imagem de avatar genérica ou real
-  politicianId?: string; // ID para ligar ao módulo de análise política
+  avatarUrl: string; 
+  politicianId?: string; 
 }
 
 export interface ReputationRadar {
@@ -385,6 +449,9 @@ export interface DashboardData {
   highImpactNews: HighImpactNews[];
   masterItems: MasterItem[];
   dataSources: string[];
+  // Campos para controle de atualização e cache
+  lastAnalysis: string; // ISO Timestamp da última execução da IA
+  nextUpdate: string;   // ISO Timestamp da próxima execução automática
 }
 
 export interface DashboardWidget {
@@ -393,25 +460,17 @@ export interface DashboardWidget {
     visible: boolean;
 }
 
-// Interface completa para as regras administrativas do Módulo Político
 export interface PoliticalModuleRules {
-    // Risco
-    priority_risk_areas: string[]; // ['Judicial', 'Financeiro', 'Mídia', 'Social']
-    weight_judicial_risk: number; // 1-10
-    network_depth_level: number; // 1-3
-    min_connection_value: number; // valor monetário
-    
-    // Irregularidades
+    priority_risk_areas: string[]; 
+    weight_judicial_risk: number; 
+    network_depth_level: number; 
+    min_connection_value: number; 
     nepotism_window_months: number;
     critical_positions: string[]; 
     mandatory_cpf_cnpj_check: boolean;
-
-    // Timeline
-    timeline_event_filter: string[]; // ['Homenagens', 'Eventos Sociais', 'Administrativo', 'Judicial']
+    timeline_event_filter: string[]; 
     timeline_max_years: number;
 }
-
-// --- Tipos para o Módulo de Pesquisa Investigativa (Perplexity-style) ---
 
 export interface SearchFilters {
     fileType: 'any' | 'pdf' | 'xlsx' | 'docx';
@@ -424,50 +483,63 @@ export interface SearchSource {
     title: string;
     uri: string;
     snippet?: string;
+    date?: string;
 }
 
-export interface ExtractedEntity {
-    name: string;
-    type: 'Person' | 'Company' | 'Value' | 'Date' | 'Location';
-    context: string;
-    dbMatchId?: string; // Se encontrado no banco local, armazena o ID
-    dbMatchType?: 'politician' | 'company' | 'employee'; // Tipo de match para roteamento
+export interface InvestigativeRedFlag {
+    title: string;
+    severity: 'Crítico' | 'Alto' | 'Médio';
+    description: string;
+    sourceIndex?: number; 
 }
 
-export interface MediaResult {
-    type: 'image' | 'video';
+export interface InvestigativeFact {
+    date: string;
+    description: string;
+    sourceIndex?: number;
+}
+
+// Tipos atualizados para pesquisa forense rica
+export interface InvestigativeMedia {
+    type: 'Image' | 'Video';
     url: string;
-    source: string;
     description?: string;
+    sourceUrl?: string;
 }
 
-export interface RelatedProfile {
+export interface InvestigativeProfile {
     name: string;
-    platform: 'Instagram' | 'Facebook' | 'Twitter' | 'LinkedIn' | 'Web';
-    url: string;
-    relevance: 'Alta' | 'Média' | 'Baixa';
+    role: string;
+    riskLevel: 'Alto' | 'Médio' | 'Baixo';
+    matchType: 'Exact' | 'Partial' | 'New'; // Se já existe no DB
+    dbId?: string;
 }
 
-export interface InvestigationResult {
-    answer: string; // Texto rico em Markdown
+export interface InvestigativeConnection {
+    name: string;
+    role: string;
+    type: 'Pessoa' | 'Empresa' | 'Órgão';
+    linkToModule?: string; 
+    dbMatchId?: string;
+    isMonitored?: boolean;
+}
+
+export interface SentimentAnalysisResult {
+    score: number; 
+    label: 'Positivo' | 'Neutro' | 'Negativo';
+    summary: string;
+}
+
+export interface InvestigationReport {
+    query: string;
+    timestamp: string;
+    executiveSummary: string; 
+    sentiment: SentimentAnalysisResult;
+    redFlags: InvestigativeRedFlag[];
+    timeline: InvestigativeFact[];
+    connections: InvestigativeConnection[];
     sources: SearchSource[];
-    entities: ExtractedEntity[];
-    media: MediaResult[];
-    relatedProfiles: RelatedProfile[];
-    followUpQuestions: string[];
-}
-
-// Estrutura para comparação de campanhas
-export interface CampaignComparisonData {
-    preCampaign: {
-        discourse: string;
-        spending: number;
-        alliances: string[];
-    };
-    duringCampaign: {
-        discourse: string;
-        spending: number;
-        alliances: string[];
-    };
-    analysis: string; // Texto explicativo da mudança
+    media?: InvestigativeMedia[];
+    detectedProfiles?: InvestigativeProfile[];
+    followUpActions: string[];
 }

@@ -21,30 +21,30 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ politician }) => (
             <img 
                 src={politician.imageUrl} 
                 alt={politician.name} 
-                className="w-32 h-32 rounded-full mx-auto border-4 border-brand-accent object-cover shadow-md" 
+                className="w-32 h-32 rounded-full mx-auto border-4 border-brand-accent object-cover shadow-md bg-brand-primary" 
                 referrerPolicy="no-referrer"
                 onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(politician.name)}&background=random&color=fff&size=128`;
+                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(politician.name)}&background=random&color=fff&size=128&font-size=0.4`;
                 }}
             />
             <h2 className="text-2xl font-bold mt-4 text-white">{politician.name}</h2>
             <p className="text-brand-cyan font-semibold">{politician.position}</p>
             <p className="text-brand-light text-sm">{politician.party} - {politician.state}</p>
             
-            {/* Salário e Redes Sociais */}
+            {/* Salário e Redes Sociais - Destaque no Perfil */}
             <div className="flex justify-center gap-4 my-4 text-sm">
                 {politician.salary && (
-                    <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded">
-                        <span className="text-brand-light text-xs">Salário Estimado</span>
-                        <span className="font-bold text-green-400">
+                    <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded border border-white/5">
+                        <span className="text-brand-light text-[10px] uppercase tracking-wide">Salário Estimado</span>
+                        <span className="font-bold text-green-400 font-mono">
                             {politician.salary.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </span>
                     </div>
                 )}
                 {politician.socialMedia?.followers && (
-                     <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded">
-                        <span className="text-brand-light text-xs">Seguidores</span>
-                        <span className="font-bold text-blue-400">
+                     <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded border border-white/5">
+                        <span className="text-brand-light text-[10px] uppercase tracking-wide">Seguidores</span>
+                        <span className="font-bold text-blue-400 font-mono">
                             {new Intl.NumberFormat('pt-BR', { notation: 'compact', compactDisplay: 'short' }).format(politician.socialMedia.followers)}
                         </span>
                     </div>
@@ -62,7 +62,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ politician }) => (
             </div>
              <div className="mt-4 h-52">
                 <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner /></div>}>
-                    {/* FIX: Fallback para array vazio para evitar erro 'reading stroke' no Recharts */}
                     <ReputationRadar data={politician.reputation || []} />
                 </Suspense>
             </div>

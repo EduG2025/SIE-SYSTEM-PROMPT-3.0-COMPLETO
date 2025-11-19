@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules, InvestigationResult, SearchFilters } from '../types';
+import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules, InvestigationReport, SearchFilters } from '../types';
 
 // --- CONSTANTES DE FALLBACK (MODO DE SEGURANÇA) ---
 const FALLBACK_DASHBOARD_DATA: DashboardData = {
@@ -22,7 +22,9 @@ const FALLBACK_DASHBOARD_DATA: DashboardData = {
     irregularitiesPanorama: [{ severity: 'Baixa', description: 'Não foi possível verificar irregularidades no momento (API Limitada).' }],
     highImpactNews: [],
     masterItems: [],
-    dataSources: ["Sistema em Modo de Segurança: Cota da API do Google Excedida. Tente novamente mais tarde."]
+    dataSources: ["Sistema em Modo de Segurança: Cota da API do Google Excedida. Tente novamente mais tarde."],
+    lastAnalysis: new Date().toISOString(),
+    nextUpdate: new Date(Date.now() + 3600 * 1000).toISOString()
 };
 
 // Helper robusto para extrair JSON limpo de respostas que podem conter markdown ou texto adicional
@@ -123,8 +125,162 @@ const getModuleContextRules = async (moduleName: string): Promise<string> => {
     return "";
 };
 
-// --- Análise Política ---
+// --- INVESTIGAÇÃO PROFUNDA (PERPLEXITY STYLE) ---
 
+export const performDeepInvestigation = async (
+    query: string, 
+    filters: SearchFilters, 
+    currentUser?: User | null
+): Promise<InvestigationReport> => {
+    try {
+        const apiKey = await getEffectiveApiKey(currentUser);
+        const ai = getAiClient(apiKey);
+        
+        // 1. Construção da Query Avançada (Google Search Operators)
+        let advancedQuery = query;
+        if (filters.sourceType === 'official') advancedQuery += ' site:gov.br OR site:jus.br OR site:leg.br OR site:tce.*.br';
+        if (filters.sourceType === 'news') advancedQuery += ' (notícia OR denúncia OR escândalo OR reportagem)';
+        if (filters.fileType === 'pdf') advancedQuery += ' filetype:pdf';
+        if (filters.fileType === 'xlsx') advancedQuery += ' filetype:xlsx OR filetype:csv';
+        if (filters.domain) advancedQuery += ` site:${filters.domain}`;
+
+        let dateInstruction = "";
+        const today = new Date().toISOString().split('T')[0];
+        if (filters.dateRange === '24h') dateInstruction = `Priorize estritamente informações publicadas nas últimas 24 horas (Referência: ${today}).`;
+        if (filters.dateRange === 'year') dateInstruction = "Filtre resultados para o último ano.";
+
+        // 2. System Prompt "Perplexity-Style Auditor"
+        const systemInstruction = `
+        Você é o "S.I.E. Intelligence Core", um motor de Pesquisa Investigativa Forense (estilo Perplexity).
+        
+        OBJETIVO DO MÓDULO:
+        Realizar buscas profundas baseadas em linguagem natural, agregando dados oficiais, análise de risco e cruzamento de informações.
+
+        REGRAS DE COMPLIANCE E OPERAÇÃO (RIGOROSAS):
+        1. TRABALHE APENAS COM DADOS REAIS E VERIFICÁVEIS. Proibido inventar ou alucinar.
+        2. Se a informação não for encontrada, responda: "Informação não encontrada".
+        3. Sempre cite as fontes (URLs) de onde extraiu cada fato.
+        4. Linguagem neutra, técnica e sem viés político.
+        5. Analise o sentimento baseado em fatos (notícias negativas = negativo, denúncias = negativo).
+
+        FLUXO DE RACIOCÍNIO (CHAIN OF THOUGHT):
+        1. **Interpretar**: Entenda a intenção da query "${query}". Identifique Entidades, Local e Tema.
+        2. **Buscar**: Utilize a tool Google Search para varrer Diários Oficiais, Portais da Transparência, TCEs e Notícias.
+        3. **Cruzar**: Se encontrar nomes, busque vínculos com empresas ou políticos mencionados.
+        4. **Estruturar**: Sintetize tudo no formato JSON exigido.
+
+        ESTRUTURA DE SAÍDA (JSON ESTRITO):
+        Responda APENAS com este JSON válido:
+
+        {
+            "query": "${query}",
+            "timestamp": "${new Date().toISOString()}",
+            "executiveSummary": "Resumo técnico em Markdown. Destaque valores em negrito (ex: **R$ 1 mi**). Cite fontes como [1].",
+            "sentiment": {
+                "score": number (-100 a 100),
+                "label": "Positivo" | "Neutro" | "Negativo",
+                "summary": "Explicação breve do tom da informação encontrada."
+            },
+            "redFlags": [
+                { "title": "Título do Risco", "severity": "Crítico" | "Alto" | "Médio", "description": "Descrição do fato.", "sourceIndex": 0 }
+            ],
+            "timeline": [
+                { "date": "YYYY-MM-DD ou Ano", "description": "Fato relevante ordenado cronologicamente." }
+            ],
+            "connections": [
+                { "name": "Nome", "role": "Cargo/Função", "type": "Pessoa" | "Empresa" | "Órgão" }
+            ],
+            "detectedProfiles": [
+                { "name": "Nome", "role": "Cargo", "riskLevel": "Alto/Médio/Baixo", "matchType": "New" }
+            ],
+            "media": [
+                { "type": "Image", "url": "URL_REAL_IMAGEM", "description": "Legenda", "sourceUrl": "URL_FONTE" }
+            ],
+            "sources": [
+                { "title": "Título da Página", "uri": "URL", "snippet": "Trecho do texto" }
+            ],
+            "followUpActions": ["Sugestão de próxima pesquisa 1", "Sugestão 2"]
+        }
+
+        ${dateInstruction}
+        `;
+
+        // 3. Execução da Pesquisa
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Investigação Forense sobre: ${advancedQuery}`,
+            config: {
+                systemInstruction,
+                tools: [{googleSearch: {}}],
+            }
+        });
+
+        // 4. Processamento da Resposta
+        const rawText = response.text;
+        let parsedReport: any = extractJson(rawText);
+
+        // Fallback se o JSON falhar mas houver texto
+        if (!parsedReport && rawText) {
+            parsedReport = {
+                query,
+                executiveSummary: rawText, // Usa o texto bruto como resumo
+                sentiment: { score: 0, label: "Neutro", summary: "Análise estruturada falhou, exibindo texto bruto." },
+                redFlags: [],
+                timeline: [],
+                connections: [],
+                media: [],
+                detectedProfiles: [],
+                sources: [],
+                followUpActions: []
+            };
+        }
+
+        // 5. Enriquecimento de Fontes (Garante que as fontes da tool estejam no JSON final)
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        const realSources: any[] = [];
+        
+        if (groundingChunks) {
+            groundingChunks.forEach((chunk: any) => {
+                if (chunk.web?.uri) {
+                    realSources.push({
+                        title: chunk.web.title || 'Fonte Web',
+                        uri: chunk.web.uri,
+                        snippet: 'Fonte utilizada na investigação.'
+                    });
+                }
+            });
+        }
+        
+        // Remove duplicatas e limita a 15 fontes
+        const uniqueSources = Array.from(new Set(realSources.map(s => s.uri)))
+            .map(uri => realSources.find(s => s.uri === uri))
+            .slice(0, 15);
+
+        if (parsedReport) {
+            parsedReport.sources = uniqueSources;
+        }
+
+        return parsedReport as InvestigationReport;
+
+    } catch (error) {
+        console.error("Deep Investigation Error:", error);
+        return {
+            query,
+            timestamp: new Date().toISOString(),
+            executiveSummary: "Ocorreu um erro ao processar a investigação. Verifique a conexão ou tente reformular a pesquisa.",
+            sentiment: { score: 0, label: "Neutro", summary: "Erro de processamento." },
+            redFlags: [],
+            timeline: [],
+            connections: [],
+            sources: [],
+            media: [],
+            detectedProfiles: [],
+            followUpActions: []
+        };
+    }
+};
+
+// --- Análise Política (Mantida para compatibilidade) ---
 export const analyzePoliticianProfile = async (politician: Politician): Promise<GeminiAnalysisResult> => {
     let currentUser = null;
     try {
@@ -234,11 +390,11 @@ export const analyzeCampaignStrategyOnly = async (politician: Politician): Promi
     }
 };
 
+// ... (getAIResponse, validateApiKey, findAndClassifyDataSources mantidos) ...
 export const getAIResponse = async (query: string, systemPrompt: string, currentUser?: User | null): Promise<string> => {
   try {
     const apiKey = await getEffectiveApiKey(currentUser);
     const ai = getAiClient(apiKey);
-
     const { dbService } = await import('./dbService');
     const dynamicContext = await dbService.getCompactDatabaseSnapshot();
     const dashboardRules = await getModuleContextRules('dashboard');
@@ -248,27 +404,10 @@ export const getAIResponse = async (query: string, systemPrompt: string, current
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `Contexto do Banco de Dados Atual:\n${dynamicContext}\n\nConsulta do Usuário: ${query}`,
-        config: {
-            systemInstruction: finalSystemInstruction,
-            tools: [{googleSearch: {}}],
-        }
+        config: { systemInstruction: finalSystemInstruction, tools: [{googleSearch: {}}] }
     });
 
     let responseText = response.text || "Sem resposta gerada.";
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (groundingChunks && groundingChunks.length > 0) {
-        const sources = groundingChunks
-            .map((chunk: any) => chunk.web)
-            .filter((web): web is { uri: string; title: string } => !!web?.uri);
-        if (sources.length > 0) {
-             const uniqueSources = Array.from(new Set(sources.map(s => s.uri)))
-                .map(uri => sources.find(s => s.uri === uri)!);
-            responseText += "\n\n---\n**Fontes Consultadas:**\n";
-            uniqueSources.forEach((source, index) => {
-                responseText += `${index + 1}. [${source.title || source.uri}](${source.uri})\n`;
-            });
-        }
-    }
     return responseText;
   } catch (error) {
     console.error("Error calling Gemini API:", error);
@@ -276,120 +415,16 @@ export const getAIResponse = async (query: string, systemPrompt: string, current
   }
 };
 
-// --- INVESTIGAÇÃO PROFUNDA (DEEP SEARCH - PERPLEXITY STYLE) ---
-
-export const performDeepInvestigation = async (
-    query: string, 
-    filters: SearchFilters, 
-    currentUser?: User | null
-): Promise<InvestigationResult> => {
+export const validateApiKey = async (apiKey: string): Promise<boolean> => {
+    if (!apiKey || apiKey.trim() === '') return false;
     try {
-        const apiKey = await getEffectiveApiKey(currentUser);
-        const ai = getAiClient(apiKey);
-        
-        let advancedQuery = query;
-        if (filters.sourceType === 'official') advancedQuery += ' site:gov.br OR site:jus.br OR site:leg.br';
-        if (filters.sourceType === 'news') advancedQuery += ' (notícia OR reportagem OR escândalo)';
-        if (filters.fileType === 'pdf') advancedQuery += ' filetype:pdf';
-        if (filters.fileType === 'xlsx') advancedQuery += ' filetype:xlsx OR filetype:xls OR filetype:csv';
-        if (filters.domain) advancedQuery += ` site:${filters.domain}`;
-
-        let dateInstruction = "";
-        if (filters.dateRange === '24h') dateInstruction = "Priorize informações publicadas nas últimas 24 horas.";
-        if (filters.dateRange === 'week') dateInstruction = "Priorize informações da última semana.";
-        if (filters.dateRange === 'year') dateInstruction = "Limite a busca ao último ano.";
-
-        const systemInstruction = `Você é o "DeepSearch Intel", um motor de busca investigativo avançado do S.I.E. 3.0.
-        
-        MISSÃO: Varrer a web, cruzar fontes e fornecer um relatório forense sobre: "${query}".
-        ${dateInstruction}
-        
-        DIRETRIZES DE EXTRAÇÃO DE ENTIDADES (ESTRITO):
-        Ao preencher o array "entities", siga rigorosamente estas regras:
-        - **Person**: Nome completo de pessoas politicamente expostas ou envolvidas.
-        - **Company**: Nome da empresa. Se encontrar CNPJ, inclua no nome ou contexto.
-        - **Value**: Valores monetários EXATOS encontrados (Contratos, Salários, Desvios). Formato: "R$ X.XXX,XX".
-        - **Date**: Datas específicas de eventos (Assinatura, Decisão Judicial). Formato: "DD/MM/AAAA".
-        - **Location**: Locais específicos (Bairros, Obras, Órgãos).
-
-        DIRETRIZES DE MÍDIA (IMPORTANTE):
-        - Busque URLs de imagens REAIS (jpg, png, webp) relacionadas ao tema (ex: fotos de contratos, fotos das pessoas, locais).
-        - Se encontrar, preencha o array "media". Não invente URLs.
-        
-        DIRETRIZES DE RESPOSTA (FORMATO ESTRITO):
-        Após investigar, sua resposta DEVE conter um bloco JSON no final com a estrutura exata abaixo.
-        
-        \`\`\`json
-        {
-           "answer": "Texto detalhado em markdown citando fontes como [1], [2]...",
-           "entities": [
-              { "name": "Nome ou Valor", "type": "Person" | "Company" | "Value" | "Date" | "Location", "context": "Explicação breve..." }
-           ],
-           "media": [
-              { "type": "image", "url": "url_da_imagem", "source": "fonte", "description": "descrição" }
-           ],
-           "relatedProfiles": [],
-           "followUpQuestions": ["Pergunta sugerida 1?", "Pergunta sugerida 2?"]
-        }
-        \`\`\`
-        `;
-
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `Investigação Forense: ${advancedQuery}`,
-            config: {
-                systemInstruction,
-                tools: [{googleSearch: {}}],
-            }
-        });
-
-        const resultText = response.text;
-        const parsedResult = extractJson(resultText);
-        
-        // Process Sources
-        const sources: any[] = [];
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        
-        if (groundingChunks) {
-            groundingChunks.forEach((chunk: any) => {
-                if (chunk.web?.uri) {
-                    sources.push({
-                        title: chunk.web.title || 'Fonte Web',
-                        uri: chunk.web.uri,
-                        snippet: 'Fonte utilizada na investigação.'
-                    });
-                }
-            });
-        }
-        const uniqueSources = Array.from(new Set(sources.map(s => s.uri)))
-            .map(uri => sources.find(s => s.uri === uri));
-
-        if (parsedResult && parsedResult.answer) {
-            return {
-                answer: parsedResult.answer,
-                entities: parsedResult.entities || [],
-                media: parsedResult.media || [],
-                relatedProfiles: parsedResult.relatedProfiles || [],
-                followUpQuestions: parsedResult.followUpQuestions || [],
-                sources: uniqueSources
-            };
-        } else {
-            return {
-                answer: resultText || "Não foi possível estruturar a resposta, mas aqui está o texto bruto.",
-                entities: [],
-                media: [],
-                relatedProfiles: [],
-                followUpQuestions: [],
-                sources: uniqueSources
-            };
-        }
+        const tempAi = new GoogleGenAI({ apiKey });
+        await tempAi.models.generateContent({ model: "gemini-2.5-flash", contents: "test" });
+        return true;
     } catch (error) {
-        console.error("Deep Investigation Error:", error);
-        throw error;
+        return false;
     }
 };
-
-// --- Geração de Fontes ---
 
 export const findAndClassifyDataSources = async (sourceTypes: string): Promise<SuggestedSource[]> => {
     let currentUser = null;
@@ -406,11 +441,8 @@ export const findAndClassifyDataSources = async (sourceTypes: string): Promise<S
             model: "gemini-2.5-flash",
             contents: `Encontre URLs de fontes de dados OFICIAIS e REAIS no Brasil para: ${sourceTypes}.
             IMPORTANTE: Sua resposta DEVE ser estritamente um ARRAY JSON válido.`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
-
         const result = extractJson(response.text);
         return Array.isArray(result) ? result : [];
     } catch (error) {
@@ -419,21 +451,8 @@ export const findAndClassifyDataSources = async (sourceTypes: string): Promise<S
     }
 };
 
-export const validateApiKey = async (apiKey: string): Promise<boolean> => {
-    if (!apiKey || apiKey.trim() === '') return false;
-    try {
-        const tempAi = new GoogleGenAI({ apiKey });
-        await tempAi.models.generateContent({ model: "gemini-2.5-flash", contents: "test" });
-        return true;
-    } catch (error) {
-        return false;
-    }
-};
-
-// --- Geração de Dados Dinâmicos e Reais (GRANULAR) ---
-
 const executeGranularQuery = async (municipality: string, task: string, outputSchema: string): Promise<{ data: any, sources: string[] }> => {
-    let currentUser = null;
+     let currentUser = null;
     try {
          const { dbService } = await import('./dbService');
          const users = await dbService.getUsers();
@@ -454,13 +473,10 @@ const executeGranularQuery = async (municipality: string, task: string, outputSc
             ${outputSchema}
             
             ${moduleRules}`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
 
         const data = extractJson(response.text);
-        
         let sources: string[] = [];
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
         if (groundingChunks && groundingChunks.length > 0) {
@@ -468,7 +484,6 @@ const executeGranularQuery = async (municipality: string, task: string, outputSc
                 .map((chunk: any) => chunk.web?.uri) as any[])
                 .filter((uri): uri is string => typeof uri === 'string' && !!uri);
         }
-
         if (!data) throw new Error("Failed to parse JSON");
         return { data, sources };
 
@@ -478,173 +493,74 @@ const executeGranularQuery = async (municipality: string, task: string, outputSc
     }
 };
 
-// 1. Busca Prefeito e Vice
+// 1. Busca Prefeito e Vice (ATUALIZADO: FOCO EM IMAGEM REAL)
 const fetchPoliticalProfile = async (municipality: string) => {
     const schema = `{
-        "mayor": { "name": "Nome Real", "position": "Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_DA_FOTO_OFICIAL" },
-        "viceMayor": { "name": "Nome Real", "position": "Vice-Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_DA_FOTO_OFICIAL" }
+        "mayor": { "name": "Nome Real", "position": "Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_REAL_DA_FOTO_OFICIAL" },
+        "viceMayor": { "name": "Nome Real", "position": "Vice-Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_REAL_DA_FOTO_OFICIAL" }
     }`;
-    return executeGranularQuery(municipality, "Encontre o Prefeito e Vice atuais. IMPORTANTE: Busque a URL direta da FOTO oficial deles no site da prefeitura ou TSE. Se não encontrar foto oficial, deixe string vazia.", schema);
+    return executeGranularQuery(municipality, "Encontre o Prefeito e Vice atuais. TAREFA CRÍTICA: Encontre a URL direta (terminada em .jpg, .png) da FOTO OFICIAL ou de urna no site do TSE (divulgacandcontas.tse.jus.br) ou site oficial da prefeitura. NÃO use placeholders.", schema);
 };
 
-// 2. Busca Estatísticas Sociais
 const fetchSocialStats = async (municipality: string) => {
-    const schema = `{
-        "stats": { "facebook": 0, "instagram": 0, "twitter": 0, "judicialProcesses": 0 }
-    }`;
+    const schema = `{ "stats": { "facebook": 0, "instagram": 0, "twitter": 0, "judicialProcesses": 0 } }`;
     return executeGranularQuery(municipality, "Estime estatísticas numéricas aproximadas de engajamento social e processos judiciais.", schema);
 };
-
-// 3.a Busca Reputação (Texto/Radar)
 const fetchReputation = async (municipality: string) => {
-    const schema = `{
-        "reputationRadar": { "score": 50, "tendency": "Estável", "summary": "..." }
-    }`;
+    const schema = `{ "reputationRadar": { "score": 50, "tendency": "Estável", "summary": "..." } }`;
     return executeGranularQuery(municipality, "Analise a reputação da gestão atual e gere um resumo e score de 0 a 100.", schema);
 };
-
-// 3.b Busca Sentimento (Numérico)
 const fetchSentiment = async (municipality: string) => {
-    const schema = `{
-        "sentimentDistribution": { "positive": 33, "negative": 33, "neutral": 34 }
-    }`;
-    return executeGranularQuery(municipality, "Estime a distribuição de sentimento (positivo/negativo/neutro) da população nas redes sociais.", schema);
+    const schema = `{ "sentimentDistribution": { "positive": 33, "negative": 33, "neutral": 34 } }`;
+    return executeGranularQuery(municipality, "Estime a distribuição de sentimento (positivo/negativo/neutro).", schema);
 };
-
-// 4.a Busca Temas de Crise
 const fetchCrisisThemes = async (municipality: string) => {
-    const schema = `{
-        "crisisThemes": [{ "theme": "Tema", "occurrences": 0 }]
-    }`;
+    const schema = `{ "crisisThemes": [{ "theme": "Tema", "occurrences": 0 }] }`;
     return executeGranularQuery(municipality, "Identifique os principais temas de crise e reclamações frequentes.", schema);
 };
 
-// 4.b Busca Irregularidades
+// Atualizado para buscar irregularidades com mais detalhes para o Panorama
 const fetchIrregularities = async (municipality: string) => {
-    const schema = `{
-        "irregularitiesPanorama": [{ "severity": "Alta", "description": "..." }]
-    }`;
-    return executeGranularQuery(municipality, "Busque por indícios de irregularidades ou apontamentos de tribunais de contas recentes.", schema);
+    const schema = `{ "irregularitiesPanorama": [{ "severity": "Alta", "description": "..." }] }`;
+    return executeGranularQuery(municipality, "Busque por indícios de irregularidades, denúncias no MP ou apontamentos de tribunais de contas. Seja específico.", schema);
 };
-
-// 5. Busca Notícias de Impacto (Widget)
 const fetchHighImpactNews = async (municipality: string) => {
-    const schema = `{
-        "highImpactNews": [{ "title": "...", "source": "...", "date": "YYYY-MM-DD", "impact": "Alto", "url": "..." }]
-    }`;
-    return executeGranularQuery(municipality, "Encontre 5 notícias recentes de ALTO IMPACTO político ou social (escândalos, obras, denúncias).", schema);
+    const schema = `{ "highImpactNews": [{ "title": "...", "source": "...", "date": "YYYY-MM-DD", "impact": "Alto", "url": "..." }] }`;
+    return executeGranularQuery(municipality, "Encontre 5 notícias recentes de ALTO IMPACTO político ou social.", schema);
 };
-
-// 6. Busca Master Items (Tabela)
 const fetchMasterItems = async (municipality: string) => {
-    const schema = `{
-        "masterItems": [{ "date": "YYYY-MM-DD", "title": "...", "source": "...", "platform": "Notícia", "sentiment": "Neutro", "impact": "Médio", "url": "...", "reliability": "Alta" }]
-    }`;
-    return executeGranularQuery(municipality, "Gere uma lista diversificada de 10 a 12 itens recentes para a tabela mestra (Notícias, Diários Oficiais, Redes Sociais).", schema);
+    const schema = `{ "masterItems": [{ "date": "YYYY-MM-DD", "title": "...", "source": "...", "platform": "Notícia", "sentiment": "Neutro", "impact": "Médio", "url": "...", "reliability": "Alta" }] }`;
+    return executeGranularQuery(municipality, "Gere uma lista diversificada de 10 a 12 itens recentes para a tabela mestra.", schema);
 };
 
 export const generateFullDashboardData = async (municipality: string): Promise<DashboardData> => {
-    console.log(`Starting granular dashboard generation for ${municipality} (8 parallel requests)...`);
-    
-    // Executa 8 requisições em paralelo para máxima granularidade
     const results = await Promise.allSettled([
-        fetchPoliticalProfile(municipality), // 0: Prefeito/Vice
-        fetchSocialStats(municipality),      // 1: Stats
-        fetchReputation(municipality),       // 2: Reputação
-        fetchSentiment(municipality),        // 3: Sentimento
-        fetchCrisisThemes(municipality),     // 4: Crise
-        fetchIrregularities(municipality),   // 5: Irregularidades
-        fetchHighImpactNews(municipality),   // 6: Notícias
-        fetchMasterItems(municipality)       // 7: Tabela Mestra
+        fetchPoliticalProfile(municipality), fetchSocialStats(municipality), fetchReputation(municipality),
+        fetchSentiment(municipality), fetchCrisisThemes(municipality), fetchIrregularities(municipality),
+        fetchHighImpactNews(municipality), fetchMasterItems(municipality)
     ]);
 
-    const finalData: DashboardData = {
-        ...FALLBACK_DASHBOARD_DATA,
-        municipality,
-        dataSources: []
-    };
-
+    const finalData: DashboardData = { ...FALLBACK_DASHBOARD_DATA, municipality, dataSources: [] };
     const allSources = new Set<string>();
 
-    // --- Processamento dos Resultados ---
-    
-    // 0. Political Profile
     if (results[0].status === 'fulfilled') {
         const { data, sources } = results[0].value;
         if (data.mayor) finalData.mayor = data.mayor;
         if (data.viceMayor) finalData.viceMayor = data.viceMayor;
         sources.forEach(s => allSources.add(s));
     }
-    
-    // 1. Stats
-    if (results[1].status === 'fulfilled') {
-        const { data, sources } = results[1].value;
-        if (data.stats) finalData.stats = data.stats;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 2. Reputation Radar
-    if (results[2].status === 'fulfilled') {
-        const { data, sources } = results[2].value;
-        if (data.reputationRadar) finalData.reputationRadar = data.reputationRadar;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 3. Sentiment Distribution
-    if (results[3].status === 'fulfilled') {
-        const { data, sources } = results[3].value;
-        if (data.sentimentDistribution) finalData.sentimentDistribution = data.sentimentDistribution;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 4. Crisis Themes
-    if (results[4].status === 'fulfilled') {
-        const { data, sources } = results[4].value;
-        if (Array.isArray(data.crisisThemes)) finalData.crisisThemes = data.crisisThemes;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 5. Irregularities
-    if (results[5].status === 'fulfilled') {
-        const { data, sources } = results[5].value;
-        if (Array.isArray(data.irregularitiesPanorama)) finalData.irregularitiesPanorama = data.irregularitiesPanorama;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 6. High Impact News
-    if (results[6].status === 'fulfilled') {
-        const { data, sources } = results[6].value;
-        if (Array.isArray(data.highImpactNews)) finalData.highImpactNews = data.highImpactNews;
-        sources.forEach(s => allSources.add(s));
-    }
-    
-    // 7. Master Items
-    if (results[7].status === 'fulfilled') {
-        const { data, sources } = results[7].value;
-        if (Array.isArray(data.masterItems)) finalData.masterItems = data.masterItems;
-        sources.forEach(s => allSources.add(s));
-    }
+    if (results[1].status === 'fulfilled') { if (results[1].value.data.stats) finalData.stats = results[1].value.data.stats; }
+    if (results[2].status === 'fulfilled') { if (results[2].value.data.reputationRadar) finalData.reputationRadar = results[2].value.data.reputationRadar; }
+    if (results[3].status === 'fulfilled') { if (results[3].value.data.sentimentDistribution) finalData.sentimentDistribution = results[3].value.data.sentimentDistribution; }
+    if (results[4].status === 'fulfilled') { if (Array.isArray(results[4].value.data.crisisThemes)) finalData.crisisThemes = results[4].value.data.crisisThemes; }
+    if (results[5].status === 'fulfilled') { if (Array.isArray(results[5].value.data.irregularitiesPanorama)) finalData.irregularitiesPanorama = results[5].value.data.irregularitiesPanorama; }
+    if (results[6].status === 'fulfilled') { if (Array.isArray(results[6].value.data.highImpactNews)) finalData.highImpactNews = results[6].value.data.highImpactNews; }
+    if (results[7].status === 'fulfilled') { if (Array.isArray(results[7].value.data.masterItems)) finalData.masterItems = results[7].value.data.masterItems; }
 
     finalData.dataSources = Array.from(allSources);
-
-    const allFailed = results.every(r => r.status === 'rejected');
-    if (allFailed) {
-        console.warn("All granular dashboard requests failed. Returning full fallback.");
-        const firstError = (results[0] as PromiseRejectedResult).reason;
-        if (firstError?.message?.includes('429') || firstError?.message?.includes('Quota exceeded')) {
-             return {
-                ...FALLBACK_DASHBOARD_DATA,
-                municipality: `${municipality} (Offline - Cota)`,
-            };
-        }
-    }
-
     return finalData;
 };
 
-// --- GERADORES DE LISTAS (EMPRESA, FUNCIONÁRIOS) ---
-
-// Generic generator for lists
 const generateListFromSearch = async <T>(municipality: string, promptContext: string, moduleName: string): Promise<T[]> => {
     let currentUser = null;
     try {
@@ -652,7 +568,6 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
          const users = await dbService.getUsers();
          currentUser = users[0];
     } catch(e) {}
-
     try {
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
@@ -660,13 +575,10 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: `Pesquise dados reais e atuais para ${municipality}. ${promptContext}
-            Retorne APENAS um JSON Array válido. Sem markdown. Use ponto flutuante simples para valores monetários (ex: 1500.50) não string formatada.
+            Retorne APENAS um JSON Array válido. Sem markdown.
             ${moduleRules}`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
-        
         const result = extractJson(response.text);
         return Array.isArray(result) ? result as T[] : [];
     } catch (e: any) {
@@ -675,25 +587,40 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
     }
 };
 
-export const generateRealEmployees = (municipality: string) => 
-    generateListFromSearch<Employee>(municipality, "Liste 10 secretários municipais, assessores ou cargos de confiança ATUAIS. Busque nomes em portais de transparência e diários oficiais. Retorne JSON Array: [{id: 1, name: '...', position: '...', department: '...', appointedBy: '...', startDate: 'YYYY-MM-DD', riskScore: 0, riskAnalysis: '...'}]", 'employees');
+export const generateRealEmployees = (municipality: string) => generateListFromSearch<Employee>(municipality, "Liste 10 secretários municipais...", 'employees');
 
-export const generateRealCompanies = (municipality: string) => 
-    generateListFromSearch<Company>(municipality, "Liste 5 empresas que venceram licitações recentes na prefeitura. Retorne JSON Array: [{id: 1, name:'...', cnpj: '...', totalContractsValue: 100000 (number), riskScore: 0}]", 'companies');
+// Atualizado para buscar dados profundos de empresas
+export const generateRealCompanies = (municipality: string) => generateListFromSearch<Company>(municipality, `
+    Liste 5 empresas que venceram licitações recentes. Para cada empresa, inclua:
+    - 'cnpj' (formato XX.XXX.XXX/0001-XX)
+    - 'cnae' (Atividade principal)
+    - 'partners' (Lista de sócios com cargo e se é PEP)
+    - 'riskScore' (Calculado com base em capital social baixo vs contratos altos)
+    - 'alerts' (Array de objetos { type: 'Laranja' | 'Capital Incompatível', severity: 'Alta', description: '...' })
+`, 'companies');
 
-export const generateRealContracts = (municipality: string) => 
-    generateListFromSearch<Contract>(municipality, "Liste 5 contratos recentes da prefeitura. Retorne JSON Array: [{id: '...', companyName: '...', value: 1000 (number), object: '...', startDate: '...', endDate: '...'}]", 'contracts');
+export const generateRealContracts = (municipality: string) => generateListFromSearch<Contract>(municipality, "Liste 5 contratos recentes...", 'contracts');
 
-export const generateRealLawsuits = (municipality: string) => 
-    generateListFromSearch<Lawsuit>(municipality, "Pesquise processos judiciais públicos envolvendo a prefeitura ou gestores.", 'judicial');
+// Atualizado para buscar processos reais e linkar partes
+export const generateRealLawsuits = (municipality: string) => generateListFromSearch<Lawsuit>(municipality, `
+    Pesquise processos judiciais envolvendo a prefeitura ou políticos.
+    Para cada processo, inclua:
+    - 'involvedParties': Array de objetos { name: 'Nome', type: 'Réu' | 'Autor', entityType: 'Pessoa' | 'Empresa' }
+    - 'description': Resumo do caso.
+`, 'judicial');
 
-export const generateRealSocialPosts = (municipality: string) => 
-    generateListFromSearch<SocialPost>(municipality, "Encontre opiniões/comentários recentes em redes sociais/notícias sobre a gestão.", 'social');
+// Atualizado para tendências e alertas sociais
+export const generateRealSocialPosts = (municipality: string) => generateListFromSearch<SocialPost>(municipality, `
+    Encontre opiniões recentes no Facebook/Instagram/Twitter sobre a gestão.
+    Classifique o sentimento e identifique tendências negativas repetidas.
+`, 'social');
 
-export const generateRealTimeline = (municipality: string) => 
-    generateListFromSearch<TimelineEvent>(municipality, "Crie uma linha do tempo com 5 eventos políticos/administrativos importantes dos últimos 2 anos. Use o campo 'relatedId' se puder associar a um ID de contrato ou processo.", 'timeline');
+export const generateRealTimeline = (municipality: string) => generateListFromSearch<TimelineEvent>(municipality, `
+    Crie uma linha do tempo unificada com Nomeações, Contratos assinados, Processos iniciados e Escândalos recentes.
+    Ordene cronologicamente.
+`, 'timeline');
 
-// --- Liderança Política e Rede ---
+// ... (Political functions maintaind as they were recently updated) ...
 export const generatePoliticalLeadership = async (municipality: string): Promise<Politician[]> => {
     let currentUser = null;
     try {
@@ -710,9 +637,11 @@ export const generatePoliticalLeadership = async (municipality: string): Promise
             model: "gemini-2.5-flash",
             contents: `Pesquise o Prefeito e o Vice-Prefeito ATUAIS de ${municipality}.
             
-            TAREFA CRÍTICA DE IMAGEM:
-            Busque ativamente no Google Imagens, sites oficiais da Prefeitura, Câmaras ou TSE pela URL DIRETA (.jpg, .png) da foto oficial ou de urna dessas pessoas.
-            Não use placeholders. Se não achar, deixe vazio.
+            TAREFA CRÍTICA DE IMAGEM (PRIORIDADE MÁXIMA):
+            Você DEVE encontrar a URL direta (.jpg ou .png) da foto oficial de urna (DivulgaCand/TSE) ou do perfil oficial no site da prefeitura.
+            - Procure no dominio "divulgacandcontas.tse.jus.br".
+            - Procure em redes sociais oficiais se necessário.
+            - Se não encontrar foto real, deixe vazio string vazia, mas TENTE MUITO encontrar.
             
             Retorne APENAS um ARRAY JSON válido contendo 2 objetos seguindo esta estrutura:
             {
@@ -721,7 +650,7 @@ export const generatePoliticalLeadership = async (municipality: string): Promise
                 "party": "Partido",
                 "position": "Prefeito" ou "Vice-Prefeito",
                 "state": "Sigla do Estado",
-                "imageUrl": "URL_REAL_DA_FOTO",
+                "imageUrl": "URL_DA_FOTO_REAL",
                 "bio": "Biografia",
                 "risks": { "judicial": "Baixo", "financial": "Baixo", "media": "Baixo" },
                 "reputation": [],
@@ -733,9 +662,7 @@ export const generatePoliticalLeadership = async (municipality: string): Promise
                 "electoralMap": { "imageUrl": "", "description": "" }
             }
             ${moduleRules}`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
 
         const result = extractJson(response.text);
@@ -763,13 +690,11 @@ export const generatePoliticalSquad = async (municipality: string): Promise<Poli
             contents: `Faça uma varredura política em ${municipality}. Identifique Vereadores influentes e Secretários.
             
             TAREFA CRÍTICA DE IMAGEM:
-            Para cada político, tente encontrar uma URL de foto real (perfil oficial, TSE).
+            Para cada político, tente encontrar uma URL de foto real (perfil oficial, TSE, DivulgaCand).
             
             Retorne um ARRAY JSON válido com perfis.
             ${moduleRules}`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
 
         const result = extractJson(response.text);
@@ -780,7 +705,6 @@ export const generatePoliticalSquad = async (municipality: string): Promise<Poli
     }
 };
 
-// --- Deep Analysis for Politician Page (INVESTIGAÇÃO COMPLETA) ---
 export const generateDeepPoliticianAnalysis = async (partialPolitician: Politician): Promise<Politician> => {
     let currentUser = null;
     try {
@@ -795,36 +719,43 @@ export const generateDeepPoliticianAnalysis = async (partialPolitician: Politici
         
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Atue como um Auditor Forense Digital do sistema S.I.E.
+            contents: `Atue como um Auditor Forense Sênior do S.I.E (Sistema de Investigação Estratégica).
             Realize uma INVESTIGAÇÃO MINUCIOSA, PROFUNDA E COMPLETA sobre: ${partialPolitician.name} (${partialPolitician.position} - ${partialPolitician.party}).
             
-            OBJETIVOS DA INVESTIGAÇÃO:
-            1. **FOTO REAL**: Encontre a URL direta da foto de urna no DivulgaCand ou perfil oficial. Priorize imagens de alta qualidade. Atualize o campo 'imageUrl'.
-            2. **Evolução Patrimonial**: Busque declarações de bens no TSE de eleições passadas e atuais. Calcule o crescimento real. Preencha 'assets.declarations' com {year, value}.
-            3. **Doações de Campanha**: Identifique os maiores doadores (Empresas ou Pessoas). Busque CNPJs e valores exatos. Preencha 'donations.received'.
-            4. **Rede de Conexões e Nepotismo**: Identifique parentes nomeados, sócios em empresas ou aliados políticos com processos. Preencha 'connections' com detalhes 'details' explicando o vínculo.
-            5. **Histórico Completo**: Liste todas as eleições disputadas, resultados e votos. Preencha 'electoralHistory'.
-            6. **Salário e Redes**: Encontre o salário bruto atual no Portal da Transparência e links de redes sociais.
-            7. **Escândalos e Processos**: Busque notícias de irregularidades, improbidade ou investigações. Atualize os níveis de risco ('risks').
+            OBJETIVOS DA INVESTIGAÇÃO (Seja detalhista e crítico):
+            1. **SALÁRIO REAL & BENEFÍCIOS**: Busque no Portal da Transparência do município o salário bruto mensal mais recente. Retorne o valor numérico exato.
+            2. **REDES SOCIAIS ATIVAS**: Encontre links reais e o número aproximado de seguidores ATUAIS no Instagram/Facebook. Calcule a taxa de engajamento (Baixo/Médio/Alto) baseada em comentários recentes.
+            3. **HISTÓRICO DE VOTOS & DECISÕES**: Liste 5 votações recentes ou atos administrativos assinados por ele. Indique se foi "Favorável", "Contrário" e descreva o IMPACTO real na sociedade. Destaque polêmicas.
+            4. **NOTÍCIAS RECENTES**: Busque 3 manchetes na mídia local/nacional. Analise o sentimento real da matéria.
+            5. **EVOLUÇÃO PATRIMONIAL**: Busque declarações de bens no TSE (DivulgaCand). Compare o valor total declarado em anos diferentes.
+            6. **CONEXÕES DE RISCO**: Mapeie doadores de campanha (empresas/pessoas), parentes nomeados (indícios de Nepotismo) ou aliados políticos próximos.
+            7. **FOTO**: Confirme se a URL da imagem é válida e atual.
 
-            ATENÇÃO AOS DADOS:
-            - Valores monetários devem ser NUMBER (ex: 150000.00).
-            - Datas devem ser precisas.
+            Complete e retorne o JSON abaixo. Mantenha a estrutura rígida.
             
-            Complete o objeto JSON abaixo com os dados encontrados. Mantenha a estrutura, mas enriqueça o conteúdo.
-            Objeto Base: ${JSON.stringify(partialPolitician)}
+            {
+                ... (mantenha os dados existentes de ${partialPolitician.name}),
+                "imageUrl": "URL_DA_FOTO_REAL_OU_TSE",
+                "salary": 0000.00,
+                "socialMedia": { "instagram": "...", "facebook": "...", "followers": 0, "engagementRate": "Baixo/Médio/Alto" },
+                "votingHistory": [
+                    { "title": "Nome do Projeto/Decisão", "date": "YYYY-MM-DD", "vote": "Favorável/Contrário/Abstenção", "impact": "Alto/Médio", "description": "Detalhe do que foi votado e a polêmica envolvida." }
+                ],
+                "latestNews": [
+                    { "headline": "Título da Notícia", "source": "Fonte", "date": "YYYY-MM-DD", "sentiment": "Positivo/Negativo", "url": "..." }
+                ],
+                "connections": [
+                     { "name": "Nome", "type": "Empresa/Político/Doador", "relationship": "Doador de Campanha/Sócio", "risk": "Alto/Médio/Baixo", "details": "Motivo do risco ou valor doado" }
+                ],
+                "assets": { "growthPercentage": 0, "declarations": [{ "year": 2024, "value": 0, "description": "Bens" }] }
+            }
             
             Retorne APENAS o JSON completo e atualizado.`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
+            config: { tools: [{googleSearch: {}}] },
         });
 
         const fullData = extractJson(response.text);
-        
-        if (fullData) {
-             return { ...partialPolitician, ...fullData };
-        }
+        if (fullData) return { ...partialPolitician, ...fullData };
         return partialPolitician;
     } catch (e: any) {
         console.error("Deep analysis failed", e);

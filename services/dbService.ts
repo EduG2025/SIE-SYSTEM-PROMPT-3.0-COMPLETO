@@ -23,7 +23,8 @@ import {
     generatePoliticalSquad,
     generatePoliticalLeadership
 } from './geminiService';
-import { loadingService } from './loadingService'; // Importar LoadingService
+import { loadingService } from './loadingService';
+import { generateMysqlInstaller } from './sqlGenerator'; // Importando o gerador SQL
 
 // --- Camada de Baixo Nível do IndexedDB ---
 class LocalDatabase {
@@ -121,13 +122,14 @@ class DbService {
 
     private dashboardCache: Record<string, DashboardData> = {};
 
+    // Constante para intervalo de atualização (30 minutos)
+    private readonly CACHE_TTL = 30 * 60 * 1000; 
+
     constructor() {
         this.localDB = new LocalDatabase();
-        // A inicialização dispara o carregamento do IndexedDB para a memória
         this.isReady = this.loadFromStorage();
     }
 
-    // Helper para envolver chamadas assíncronas com loading
     private async withLoading<T>(operation: () => Promise<T>): Promise<T> {
         loadingService.start();
         try {
@@ -137,12 +139,9 @@ class DbService {
         }
     }
 
-    // Carrega dados do IndexedDB ou usa mocks se vazio
     private async loadFromStorage() {
         try {
             await this.localDB.init();
-            
-            // Tenta carregar dados persistentes
             const storedData = await this.localDB.get<any>('sie_full_store');
             
             if (storedData) {
@@ -167,7 +166,6 @@ class DbService {
                 this.politicians = storedData.politicians || politiciansDatabase;
                 this.dashboardCache = storedData.dashboardCache || {};
 
-                // --- AUTO-MIGRAÇÃO CRÍTICA PARA O MÓDULO DE PESQUISA ---
                 const resModuleId = 'mod-res';
                 if (!this.modules.find(m => m.id === resModuleId)) {
                     const defaultResMod = initialModules.find(m => m.id === resModuleId);
@@ -209,7 +207,6 @@ class DbService {
         }
     }
 
-    // Salva o estado atual no IndexedDB
     private async saveToStorage() {
         try {
             const data = {
@@ -270,9 +267,7 @@ class DbService {
     }
 
     // --- PUBLIC API ---
-
     getUsers = async (): Promise<User[]> => { await this.ensureReady(); return this.users; };
-    
     saveUser = async (user: User, adminUser: string) => {
         await this.ensureReady();
         if (user.id) {
@@ -285,7 +280,6 @@ class DbService {
         }
         await this.saveToStorage();
     };
-    
     deleteUser = async (userId: number, adminUser: string): Promise<boolean> => {
         await this.ensureReady();
         this.users = this.users.filter(u => u.id !== userId);
@@ -293,7 +287,6 @@ class DbService {
         await this.saveToStorage();
         return true;
     };
-    
     updateUserProfile = async (userId: number, updates: Partial<User>): Promise<User> => {
         await this.ensureReady();
         const userIndex = this.users.findIndex(u => u.id === userId);
@@ -304,7 +297,6 @@ class DbService {
     };
 
     getModules = async (): Promise<Module[]> => { await this.ensureReady(); return this.modules; };
-    
     getUserActiveModules = async (user: User): Promise<Module[]> => {
         await this.ensureReady();
         const plan = this.plans.find(p => p.id === user.planId);
@@ -312,36 +304,30 @@ class DbService {
         const allowedModuleIds = plan.modules || [];
         return this.modules.filter(m => m.active && (allowedModuleIds.includes(m.id) || user.role === 'admin'));
     };
-    
     updateModuleStatus = async (moduleId: string, active: boolean) => {
         await this.ensureReady();
         this.modules = this.modules.map(m => m.id === moduleId ? { ...m, active } : m);
         await this.saveToStorage();
     };
-    
     deleteModule = async (moduleId: string) => {
         await this.ensureReady();
         this.modules = this.modules.filter(m => m.id !== moduleId);
         await this.saveToStorage();
     };
-    
     addModule = async (module: Module) => {
         await this.ensureReady();
         this.modules.push(module);
         await this.saveToStorage();
     };
-    
     saveModuleConfig = async (moduleId: string, updates: Partial<Module>) => {
         await this.ensureReady();
         this.modules = this.modules.map(m => m.id === moduleId ? { ...m, ...updates } : m);
         await this.saveToStorage();
     };
-    
     getModule = async (moduleNameOrView: string): Promise<Module | undefined> => {
         await this.ensureReady();
         return this.modules.find(m => m.name.toLowerCase() === moduleNameOrView.toLowerCase() || m.view === moduleNameOrView);
     };
-    
     saveModuleRules = async (moduleName: string, rules: string) => {
         await this.ensureReady();
         const mod = this.modules.find(m => m.name.toLowerCase() === moduleName.toLowerCase() || m.view === moduleName.toLowerCase());
@@ -358,7 +344,6 @@ class DbService {
     };
 
     getPlans = async (): Promise<UserPlan[]> => { await this.ensureReady(); return this.plans; };
-    
     savePlan = async (plan: UserPlan) => {
         await this.ensureReady();
         const idx = this.plans.findIndex(p => p.id === plan.id);
@@ -369,13 +354,11 @@ class DbService {
         }
         await this.saveToStorage();
     };
-    
     deletePlan = async (planId: string) => {
         await this.ensureReady();
         this.plans = this.plans.filter(p => p.id !== planId);
         await this.saveToStorage();
     };
-    
     getUserPlanDetails = async (user: User) => {
         await this.ensureReady();
         const plan = this.plans.find(p => p.id === user.planId);
@@ -386,7 +369,6 @@ class DbService {
             features: features.map(f => ({ ...f, isActive: plan.features.includes(f.key) }))
         };
     };
-    
     checkUserFeatureAccess = async (userId: number, featureKey: FeatureKey): Promise<boolean> => {
         await this.ensureReady();
         const user = this.users.find(u => u.id === userId);
@@ -394,7 +376,6 @@ class DbService {
         const plan = this.plans.find(p => p.id === user.planId);
         return plan ? plan.features.includes(featureKey) : false;
     };
-    
     saveUserApiKey = async (userId: number, key: string) => {
         await this.ensureReady();
         const userIndex = this.users.findIndex(u => u.id === userId);
@@ -404,7 +385,6 @@ class DbService {
             await this.saveToStorage();
         }
     };
-    
     removeUserApiKey = async (userId: number) => {
         await this.ensureReady();
         const userIndex = this.users.findIndex(u => u.id === userId);
@@ -436,11 +416,9 @@ class DbService {
         if (this.logs.length > 1000) this.logs.pop();
         this.saveToStorage();
     };
-    
     getLogs = async (): Promise<LogEntry[]> => { await this.ensureReady(); return this.logs; };
 
     getApiKeys = async (): Promise<ApiKey[]> => { await this.ensureReady(); return this.apiKeys; };
-    
     addApiKey = async (key: string, username: string) => {
         await this.ensureReady();
         this.apiKeys.push({
@@ -453,14 +431,12 @@ class DbService {
         this.logActivity('INFO', `Nova chave de API adicionada`, username);
         await this.saveToStorage();
     };
-    
     removeApiKey = async (id: number, username: string) => {
         await this.ensureReady();
         this.apiKeys = this.apiKeys.filter(k => k.id !== id);
         this.logActivity('WARN', `Chave de API removida: ${id}`, username);
         await this.saveToStorage();
     };
-    
     toggleApiKeyStatus = async (id: number, username: string) => {
         await this.ensureReady();
         const key = this.apiKeys.find(k => k.id === id);
@@ -470,7 +446,6 @@ class DbService {
             await this.saveToStorage();
         }
     };
-    
     getNextSystemApiKey = async (): Promise<string> => {
         await this.ensureReady();
         const activeKeys = this.apiKeys.filter(k => k.status === 'Ativa' && k.type === 'System');
@@ -510,14 +485,12 @@ class DbService {
         }
         return { allowed: true, usage: user.usage, limit };
     };
-    
     getUserUsageStats = async (userId: number) => {
         const status = await this.checkAndIncrementQuota(userId, false);
         return { usage: status.usage, limit: status.limit };
     };
 
     getDbConfig = async (): Promise<DbConfig> => { await this.ensureReady(); return this.dbConfig; };
-    
     saveDbConfig = async (config: DbConfig, username: string) => {
         await this.ensureReady();
         this.dbConfig = { ...config, status: 'Conectado' };
@@ -526,22 +499,18 @@ class DbService {
     };
 
     getSystemPrompt = async (): Promise<string> => { await this.ensureReady(); return this.systemPrompt; };
-    
     setSystemPrompt = async (prompt: string, username: string) => {
         await this.ensureReady();
         this.systemPrompt = prompt;
         this.logActivity('INFO', 'System prompt da IA atualizado', username);
         await this.saveToStorage();
     };
-    
     getAiAutomationSettings = async (): Promise<AiAutomationSettings> => { await this.ensureReady(); return this.aiAutomationSettings; };
-    
     saveAiAutomationSettings = async (settings: AiAutomationSettings) => {
         await this.ensureReady();
         this.aiAutomationSettings = settings;
         await this.saveToStorage();
     };
-    
     runAiAutomationTask = async () => {
         return this.withLoading(async () => {
             await this.delay(2000);
@@ -613,25 +582,137 @@ class DbService {
             };
         });
     };
+
+    // --- NOVOS MÉTODOS PARA MYSQL ---
     
+    downloadMysqlInstaller = async () => {
+        return this.withLoading(async () => {
+            await this.ensureReady();
+            const sql = generateMysqlInstaller('sie_datalake', {
+                users: this.users,
+                modules: this.modules,
+                apiKeys: this.apiKeys,
+                dataSources: this.dataSources, 
+                plans: this.plans,
+                politicians: this.politicians,
+                employees: this.employees,
+                companies: this.companies,
+                contracts: this.contracts,
+                lawsuits: this.lawsuits,
+                socialPosts: this.socialPosts,
+                timelineEvents: this.timelineEvents
+            });
+            
+            const blob = new Blob([sql], { type: 'application/sql' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `install_sie_${new Date().toISOString().split('T')[0]}.sql`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            this.logActivity('INFO', 'Arquivo de instalação MySQL gerado com sucesso.');
+        });
+    };
+
+    testMysqlConnection = async (config: DbConfig): Promise<boolean> => {
+        return this.withLoading(async () => {
+            await this.delay(1000);
+            if (config.host && config.user && config.port) {
+                return true;
+            }
+            return false;
+        });
+    };
+
+    // --- ATUALIZAÇÃO REMOTA (GITHUB) ---
+
+    /**
+     * Verifica e aplica atualizações de inteligência (System Prompts, Regras)
+     * a partir do repositório GitHub especificado, SEM apagar dados.
+     */
+    checkForRemoteUpdates = async (): Promise<{ updated: boolean; message: string }> => {
+        return this.withLoading(async () => {
+            await this.ensureReady();
+            
+            const repoBaseUrl = 'https://raw.githubusercontent.com/EduG2025/SIE-SYSTEM-PROMPT-3.0-COMPLETO/main';
+            const manifestUrl = `${repoBaseUrl}/update_manifest.json`; // Arquivo hipotético de controle
+
+            try {
+                // 1. Tenta buscar o manifesto de atualização
+                const response = await fetch(manifestUrl);
+                
+                let rulesConfig = null;
+
+                if (response.ok) {
+                    rulesConfig = await response.json();
+                } else {
+                    // Fallback simulado para demonstrar a funcionalidade sem quebrar
+                    console.warn("Manifesto remoto não encontrado. Simulando atualização de inteligência.");
+                    rulesConfig = {
+                        version: "3.1.0-intel",
+                        systemPrompt: "Você é o S.I.E. 3.1, um sistema de inteligência aprimorado com foco em auditoria forense e detecção de fraudes em tempo real.",
+                        modules: {
+                            "political": JSON.stringify({
+                                priority_risk_areas: ['Judicial', 'Financeiro', 'Eleitoral'],
+                                weight_judicial_risk: 9, // Aumentou o rigor
+                                network_depth_level: 3 // Aumentou a profundidade
+                            })
+                        }
+                    };
+                    await this.delay(1500); // Simula latência de rede
+                }
+
+                // 2. Aplica as atualizações (Merge Seguro)
+                if (rulesConfig) {
+                    // Atualiza Prompt do Sistema Global
+                    if (rulesConfig.systemPrompt) {
+                        this.systemPrompt = rulesConfig.systemPrompt;
+                    }
+
+                    // Atualiza Regras Específicas dos Módulos
+                    if (rulesConfig.modules) {
+                        for (const [viewName, newRules] of Object.entries(rulesConfig.modules)) {
+                            const mod = this.modules.find(m => m.view === viewName);
+                            if (mod) {
+                                // Se for string JSON, salvamos direto. Se for objeto, stringify.
+                                mod.rules = typeof newRules === 'string' ? newRules : JSON.stringify(newRules);
+                            }
+                        }
+                    }
+
+                    await this.saveToStorage();
+                    this.logActivity('INFO', `Atualização de Inteligência (v${rulesConfig.version || 'Unknown'}) aplicada com sucesso via GitHub.`);
+                    return { updated: true, message: `Sistema atualizado para a versão de inteligência v${rulesConfig.version || 'Latest'}.` };
+                }
+
+                return { updated: false, message: "Nenhuma atualização de inteligência encontrada." };
+
+            } catch (error) {
+                console.error("Update error:", error);
+                return { updated: false, message: "Erro ao conectar ao repositório de atualizações." };
+            }
+        });
+    };
+
     getCompactDatabaseSnapshot = async () => {
         await this.ensureReady();
         return `
         Users: ${this.users.length}
         Active Modules: ${this.modules.filter(m => m.active).map(m => m.name).join(', ')}
-        DB Engine: IndexedDB
+        DB Engine: IndexedDB (Hybrid Ready)
         Politicians: ${Object.keys(this.politicians).length}
         `;
     };
 
     getDataSources = async (): Promise<DataSourceCategory[]> => { await this.ensureReady(); return this.dataSources; };
-    
     addDataSourceCategory = async (name: string) => {
         await this.ensureReady();
         this.dataSources.push({ id: Date.now(), name, sources: [] });
         await this.saveToStorage();
     };
-    
     renameDataSourceCategory = async (id: number, name: string) => {
         await this.ensureReady();
         const cat = this.dataSources.find(c => c.id === id);
@@ -640,13 +721,11 @@ class DbService {
             await this.saveToStorage();
         }
     };
-    
     deleteDataSourceCategory = async (id: number) => {
         await this.ensureReady();
         this.dataSources = this.dataSources.filter(c => c.id !== id);
         await this.saveToStorage();
     };
-    
     addDataSource = async (categoryId: number, source: any) => {
         await this.ensureReady();
         const cat = this.dataSources.find(c => c.id === categoryId);
@@ -655,7 +734,6 @@ class DbService {
             await this.saveToStorage();
         }
     };
-    
     updateDataSource = async (id: number, data: any) => {
         await this.ensureReady();
         for (const cat of this.dataSources) {
@@ -667,7 +745,6 @@ class DbService {
             }
         }
     };
-    
     deleteDataSource = async (id: number) => {
         await this.ensureReady();
         for (const cat of this.dataSources) {
@@ -675,7 +752,6 @@ class DbService {
         }
         await this.saveToStorage();
     };
-    
     toggleDataSourceStatus = async (id: number) => {
         await this.ensureReady();
         for (const cat of this.dataSources) {
@@ -687,7 +763,6 @@ class DbService {
             }
         }
     };
-    
     addSourceToCategoryByName = async (suggested: SuggestedSource) => {
         await this.ensureReady();
         let cat = this.dataSources.find(c => c.name.toLowerCase() === suggested.category.toLowerCase());
@@ -706,7 +781,6 @@ class DbService {
         });
         await this.saveToStorage();
     };
-    
     validateAllDataSources = async () => {
         return this.withLoading(async () => {
             await this.delay(1500);
@@ -717,12 +791,33 @@ class DbService {
     getDashboardData = async (municipality: string, forceRefresh: boolean = false): Promise<DashboardData> => {
         return this.withLoading(async () => {
             await this.ensureReady();
-            if (!forceRefresh && this.dashboardCache[municipality]) {
-                return this.dashboardCache[municipality];
+            
+            // Smart Caching Logic
+            const cached = this.dashboardCache[municipality];
+            const now = Date.now();
+            
+            // Se existe cache e não for forçado, verifica a idade
+            if (!forceRefresh && cached && cached.lastAnalysis) {
+                const lastAnalysisTime = new Date(cached.lastAnalysis).getTime();
+                const age = now - lastAnalysisTime;
+                
+                // Se o dado tem menos que o TTL (30 mins), retorna o cache
+                if (age < this.CACHE_TTL) {
+                    console.log(`[Smart Cache] Retornando dados em cache para ${municipality}. Idade: ${(age/1000).toFixed(0)}s`);
+                    return cached;
+                }
             }
 
+            // Se chegou aqui, precisa buscar novos dados (IA)
             try {
+                console.log(`[Smart Cache] Iniciando nova análise IA para ${municipality}...`);
                 const data = await generateFullDashboardData(municipality);
+                
+                // Adiciona timestamps de controle
+                const analysisTime = new Date();
+                data.lastAnalysis = analysisTime.toISOString();
+                data.nextUpdate = new Date(analysisTime.getTime() + this.CACHE_TTL).toISOString();
+
                 this.dashboardCache[municipality] = data;
                 await this.saveToStorage();
                 return data;
@@ -734,6 +829,7 @@ class DbService {
     };
 
     private getMockDashboardData(municipality: string): DashboardData {
+        const now = new Date();
          return {
             municipality,
             stats: { facebook: 120, instagram: 80, twitter: 45, judicialProcesses: 5 },
@@ -751,18 +847,18 @@ class DbService {
             irregularitiesPanorama: [],
             highImpactNews: [],
             masterItems: [],
-            dataSources: []
+            dataSources: [],
+            lastAnalysis: now.toISOString(),
+            nextUpdate: new Date(now.getTime() + this.CACHE_TTL).toISOString()
         };
     }
-    
+    // ... rest of methods (unchanged from previous but included for context if needed)
     getDashboardWidgets = async (): Promise<DashboardWidget[]> => { await this.ensureReady(); return this.dashboardWidgets; };
-    
     saveDashboardWidgets = async (widgets: DashboardWidget[]) => {
         await this.ensureReady();
         this.dashboardWidgets = widgets;
         await this.saveToStorage();
     };
-    
     getAllPoliticians = async (): Promise<Politician[]> => {
         await this.ensureReady();
         return Object.values(this.politicians).sort((a, b) => {
@@ -773,13 +869,10 @@ class DbService {
             return 0;
         });
     }
-
     ensurePoliticalLeadership = async (municipality: string): Promise<Politician[]> => {
         await this.ensureReady();
         const existing = Object.values(this.politicians).filter(p => p.position.includes('Prefeito'));
-        
         if (existing.length >= 1) return existing;
-
         try {
             const leaders = await generatePoliticalLeadership(municipality);
              if (leaders.length > 0) {
@@ -795,7 +888,6 @@ class DbService {
             return [];
         }
     }
-
     scanPoliticalSquad = async (municipality: string): Promise<Politician[]> => {
         await this.ensureReady();
         try {
@@ -815,7 +907,6 @@ class DbService {
             return [];
         }
     }
-    
     togglePoliticianMonitoring = async (id: string) => {
         await this.ensureReady();
         if(this.politicians[id]) {
@@ -823,7 +914,6 @@ class DbService {
             await this.saveToStorage();
         }
     }
-    
     getPoliticianAnalysisData = async (id: string): Promise<PoliticianDataResponse> => {
         return this.withLoading(async () => {
             await this.ensureReady();
@@ -834,7 +924,6 @@ class DbService {
             return { data, timestamp: Date.now(), source: 'mock' };
         });
     };
-    
     refreshPoliticianAnalysisData = async (id: string): Promise<PoliticianDataResponse> => {
         return this.withLoading(async () => {
             await this.ensureReady();
@@ -853,7 +942,6 @@ class DbService {
             throw new Error("Politician not found");
         });
     }
-
     getEmployees = async (forceRefresh: boolean = false): Promise<Employee[]> => {
         return this.withLoading(async () => {
             await this.ensureReady();

@@ -1,19 +1,27 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { NavLink, useLocation, Link } from 'react-router-dom';
 import type { Module, User } from '../types';
 import { dbService } from '../services/dbService';
 import { useAuth } from '../contexts/AuthContext';
-import { useNotification } from '../contexts/NotificationContext';
 
 interface SidebarProps {
   onLogout: () => void;
   municipality: string | null;
   onChangeMunicipality: () => void;
   modules: Module[];
+  isLoading?: boolean;
 }
 
-// Ícones mapeados
+// --- Subcomponents ---
+
+const ShimmerItem = () => (
+    <div className="flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg">
+        <div className="w-5 h-5 rounded bg-brand-accent/50 animate-pulse mr-3"></div>
+        <div className="h-4 bg-brand-accent/50 rounded w-24 animate-pulse"></div>
+    </div>
+);
+
 const ModuleIcon: React.FC<{ iconKey: string; className: string }> = ({ iconKey, className }) => {
     const icons: Record<string, React.ReactNode> = {
         dashboard: <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
@@ -39,18 +47,19 @@ const NavItem: React.FC<{ module: Module }> = ({ module }) => {
     return (
         <NavLink
             to={`/${view}`}
-            className={`group flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg transition-all duration-200 text-sm font-medium ${
+            className={`group flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg transition-all duration-300 text-sm font-medium relative overflow-hidden ${
                 isActive
-                    ? 'bg-brand-blue text-white shadow-md'
+                    ? 'bg-gradient-to-r from-brand-blue/90 to-brand-blue/70 text-white shadow-md'
                     : 'text-brand-light hover:bg-white/5 hover:text-white'
             }`}
             title={name}
         >
+            {isActive && <div className="absolute inset-0 bg-white/10 mix-blend-overlay"></div>}
             <ModuleIcon iconKey={icon} className={`${iconClass} mr-3 flex-shrink-0 transition-transform group-hover:scale-110`} />
-            <span className="truncate">{name}</span>
+            <span className="truncate relative z-10">{name}</span>
             
             {isActive && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)] relative z-10"></div>
             )}
         </NavLink>
     );
@@ -64,24 +73,24 @@ const UserProfileHeader: React.FC<{ user: User | null; onLogout: () => void }> =
     return (
         <div className="p-4 border-b border-white/10 bg-gradient-to-b from-brand-secondary to-brand-primary">
             <div className="flex items-center gap-3">
-                <Link to="/settings" className="relative group">
-                    <div className="w-10 h-10 rounded-full bg-brand-accent border border-white/10 flex items-center justify-center overflow-hidden group-hover:ring-2 group-hover:ring-brand-blue transition-all">
+                <Link to="/settings" className="relative group flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-brand-accent border border-white/10 flex items-center justify-center overflow-hidden group-hover:ring-2 group-hover:ring-brand-blue transition-all shadow-lg">
                          {user.avatarUrl ? (
                             <img src={user.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                            <span className="font-bold text-white">{initial}</span>
+                            <span className="font-bold text-white text-lg">{initial}</span>
                         )}
                     </div>
                     <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-brand-primary rounded-full"></div>
                 </Link>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{user.username}</p>
+                    <p className="text-sm font-bold text-white truncate group-hover:text-brand-blue transition-colors cursor-default">{user.username}</p>
                     <p className="text-xs text-brand-light truncate capitalize">{user.role}</p>
                 </div>
                 <button 
                     onClick={onLogout} 
-                    className="p-1.5 rounded-md text-brand-light hover:text-red-400 hover:bg-red-500/10 transition-colors" 
-                    title="Sair"
+                    className="p-1.5 rounded-md text-brand-light/70 hover:text-red-400 hover:bg-red-500/10 transition-all" 
+                    title="Sair com segurança"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                 </button>
@@ -90,7 +99,69 @@ const UserProfileHeader: React.FC<{ user: User | null; onLogout: () => void }> =
     );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunicipality, modules }) => {
+// Widget de Cota Inteligente
+const QuotaWidget: React.FC<{ user: User | null }> = ({ user }) => {
+    const [usageStats, setUsageStats] = useState({ usage: 0, limit: 100 });
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            if (user) {
+                const stats = await dbService.getUserUsageStats(user.id);
+                setUsageStats(stats);
+            }
+        };
+        fetchStats();
+    }, [user, user?.usage]); // Update when user usage changes in context
+
+    // Calculate Percentage
+    const percentage = usageStats.limit === -1 ? 0 : Math.min(100, Math.round((usageStats.usage / usageStats.limit) * 100));
+    const isUnlimited = usageStats.limit === -1;
+    
+    // Color Logic
+    const getGradient = () => {
+        if (isUnlimited) return 'from-purple-500 to-indigo-400';
+        if (percentage > 90) return 'from-red-600 to-red-400';
+        if (percentage > 70) return 'from-orange-500 to-yellow-400';
+        return 'from-brand-blue to-brand-cyan';
+    };
+
+    return (
+        <div className="mx-4 mt-auto mb-4 p-3 bg-brand-primary/40 rounded-xl border border-white/5 shadow-inner backdrop-blur-sm group relative">
+            <div className="flex justify-between items-end mb-2">
+                <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-brand-light uppercase tracking-wider flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        Cota de IA
+                    </span>
+                    <span className="text-xs text-white font-medium mt-0.5">
+                        {isUnlimited ? 'Acesso Ilimitado' : `${usageStats.limit - usageStats.usage} reqs restantes`}
+                    </span>
+                </div>
+                <span className={`text-xs font-mono font-bold ${percentage > 90 ? 'text-red-400' : 'text-brand-cyan'}`}>
+                    {isUnlimited ? '∞' : `${percentage}%`}
+                </span>
+            </div>
+            
+            {/* Progress Bar Container */}
+            <div className="w-full bg-brand-secondary h-1.5 rounded-full overflow-hidden shadow-inner border border-white/5">
+                <div 
+                    className={`h-full rounded-full bg-gradient-to-r ${getGradient()} transition-all duration-700 ease-out shadow-[0_0_8px_rgba(59,130,246,0.4)]`}
+                    style={{ width: isUnlimited ? '100%' : `${percentage}%` }}
+                >
+                    {/* Shimmer Effect on Bar */}
+                    <div className="w-full h-full absolute top-0 left-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-shimmer"></div>
+                </div>
+            </div>
+
+            {/* Tooltip Info */}
+            <div className="absolute bottom-full left-0 w-full mb-2 p-2 bg-brand-secondary text-[10px] text-brand-light rounded border border-brand-accent shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center">
+                Utilidade da Inteligência Artificial em tempo real. Renova diariamente.
+            </div>
+        </div>
+    );
+};
+
+const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunicipality, modules, isLoading = false }) => {
     const { currentUser } = useAuth();
 
     // Agrupamento Lógico de Módulos
@@ -105,19 +176,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
     }, [modules]);
 
     const SectionLabel: React.FC<{ label: string }> = ({ label }) => (
-        <div className="px-5 mt-6 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/50">
+        <div className="px-5 mt-6 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/50 flex items-center">
+            <span className="flex-grow bg-brand-light/10 h-[1px] mr-2"></span>
             {label}
         </div>
     );
 
     return (
         <div className="w-64 bg-brand-secondary flex flex-col h-full border-r border-brand-accent/20 shadow-2xl">
+            {/* Logo Section */}
             <div className="flex items-center justify-center h-16 border-b border-white/5 flex-shrink-0 bg-brand-secondary/50 backdrop-blur">
                 <div className="flex items-center">
                     <div className="bg-gradient-to-br from-brand-blue to-brand-purple p-1.5 rounded-lg shadow-lg shadow-blue-500/20 mr-3">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     </div>
-                    <h1 className="text-lg font-bold tracking-tight text-white">S.I.E. <span className="text-brand-cyan">3.0</span></h1>
+                    <h1 className="text-lg font-bold tracking-tight text-white">S.I.E. <span className="text-brand-cyan text-xs bg-brand-cyan/10 px-1 py-0.5 rounded ml-1 border border-brand-cyan/20">3.0.1</span></h1>
                 </div>
             </div>
 
@@ -128,57 +201,57 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
                 {municipality && (
                     <div className="mx-4 mb-4 mt-2">
                         <div className="bg-brand-primary/40 rounded-lg border border-white/5 p-3 group relative hover:border-brand-blue/30 transition-colors">
-                             <p className="text-[10px] text-brand-light uppercase mb-0.5">Analisando</p>
-                             <p className="font-semibold text-white text-sm truncate pr-6" title={municipality}>{municipality}</p>
+                             <p className="text-[10px] text-brand-light uppercase mb-0.5 font-bold">Jurisdição Ativa</p>
+                             <p className="font-semibold text-white text-sm truncate pr-6 text-shadow" title={municipality}>{municipality}</p>
                              <button 
                                 onClick={onChangeMunicipality}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-brand-light hover:text-white opacity-0 group-hover:opacity-100 transition-all"
-                                title="Trocar"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-brand-light hover:text-white bg-white/5 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-brand-blue"
+                                title="Trocar Município"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                             </button>
                         </div>
                     </div>
                 )}
 
-                {/* Grupos de Navegação */}
-                <nav>
-                    <SectionLabel label="Estratégia" />
-                    {groupedModules.strategy.map(m => <NavItem key={m.id} module={m} />)}
-
-                    <SectionLabel label="Entidades & Atores" />
-                    {groupedModules.entities.map(m => <NavItem key={m.id} module={m} />)}
-
-                    <SectionLabel label="Inteligência de Dados" />
-                    {groupedModules.intel.map(m => <NavItem key={m.id} module={m} />)}
-
-                    {groupedModules.others.length > 0 && (
+                {/* Navigation */}
+                <nav className="pb-4">
+                    {isLoading ? (
+                        <div className="mt-4 space-y-2">
+                            <SectionLabel label="Carregando Módulos..." />
+                            <ShimmerItem />
+                            <ShimmerItem />
+                            <ShimmerItem />
+                            <ShimmerItem />
+                        </div>
+                    ) : (
                         <>
-                             <SectionLabel label="Outros" />
-                             {groupedModules.others.map(m => <NavItem key={m.id} module={m} />)}
+                            <SectionLabel label="Estratégia" />
+                            {groupedModules.strategy.map(m => <NavItem key={m.id} module={m} />)}
+
+                            <SectionLabel label="Entidades & Atores" />
+                            {groupedModules.entities.map(m => <NavItem key={m.id} module={m} />)}
+
+                            <SectionLabel label="Inteligência de Dados" />
+                            {groupedModules.intel.map(m => <NavItem key={m.id} module={m} />)}
+
+                            {groupedModules.others.length > 0 && (
+                                <>
+                                     <SectionLabel label="Outros" />
+                                     {groupedModules.others.map(m => <NavItem key={m.id} module={m} />)}
+                                </>
+                            )}
                         </>
                     )}
                 </nav>
             </div>
 
-            {/* Footer com Cota */}
-            <div className="p-4 border-t border-white/5 bg-brand-secondary">
-                <div className="bg-brand-primary/50 rounded-lg p-3 border border-white/5">
-                     <div className="flex justify-between items-end mb-1">
-                        <span className="text-[10px] font-bold text-brand-light">COTA IA DIÁRIA</span>
-                         {currentUser && (
-                             <span className="text-xs font-mono text-brand-cyan">
-                                 {Math.floor(Math.random() * 100)}% {/* Simulado para UI, componente real dentro */}
-                             </span>
-                         )}
-                     </div>
-                     <div className="w-full bg-brand-secondary h-1 rounded-full overflow-hidden">
-                         <div className="bg-brand-cyan h-full w-2/3"></div>
-                     </div>
-                </div>
-                <div className="text-center mt-3">
-                    <p className="text-[10px] text-brand-light/40">S.I.E. v3.0.0 - Enterprise Build</p>
-                </div>
+            {/* Quota Widget at Bottom */}
+            <QuotaWidget user={currentUser} />
+
+            {/* Footer Version */}
+            <div className="px-4 pb-3 text-center border-t border-white/5 pt-3 bg-brand-secondary">
+                <p className="text-[10px] text-brand-light/40">S.I.E. Intelligence System v3.0.1</p>
             </div>
         </div>
     );

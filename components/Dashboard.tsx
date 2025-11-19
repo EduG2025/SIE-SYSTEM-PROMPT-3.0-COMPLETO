@@ -74,6 +74,9 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
     const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
     const dragItemNode = useRef<HTMLDivElement | null>(null);
 
+    // Atualização Automática
+    const [nextUpdateLabel, setNextUpdateLabel] = useState('Calculando...');
+
     // Carrega configuração dos widgets (Layout)
     useEffect(() => {
         const loadWidgets = async () => {
@@ -94,7 +97,8 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
         if (refresh) {
             setIsRefreshing(true);
         } else {
-            setIsInitialLoading(true);
+            // Só mostra o loading inicial se não tiver dados
+            if (!data) setIsInitialLoading(true);
             setError(null);
         }
 
@@ -111,11 +115,36 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
             setIsInitialLoading(false);
             setIsRefreshing(false);
         }
-    }, [municipality]);
+    }, [municipality, data]);
 
     useEffect(() => {
         fetchData(false);
     }, [fetchData]);
+
+    // Cronômetro para atualização da label e trigger de auto-refresh
+    useEffect(() => {
+        const timer = setInterval(() => {
+            if (data?.nextUpdate) {
+                const now = new Date().getTime();
+                const next = new Date(data.nextUpdate).getTime();
+                const diff = next - now;
+
+                if (diff <= 0) {
+                    // Hora de atualizar!
+                    setNextUpdateLabel("Atualizando agora...");
+                    if (!isRefreshing && !isInitialLoading) {
+                        fetchData(false); // Dispara busca (o service vai decidir se realmente chama IA ou não, mas aqui força o check)
+                    }
+                } else {
+                    const mins = Math.floor(diff / 60000);
+                    setNextUpdateLabel(mins > 0 ? `${mins} min` : '< 1 min');
+                }
+            }
+        }, 60000); // Verifica a cada minuto
+
+        return () => clearInterval(timer);
+    }, [data?.nextUpdate, fetchData, isRefreshing, isInitialLoading]);
+
 
     const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, index: number) => {
         if (!isEditMode) {
@@ -170,6 +199,9 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
 
     const renderWidgetContent = (widgetId: string) => {
         // Suspense permite que widgets pesados carreguem independentemente
+        // Se tiver dados (cache), mostra, senão Skeleton
+        if (isInitialLoading && !data) return <WidgetSkeleton />;
+
         return (
             <Suspense fallback={<WidgetSkeleton />}>
                 {(() => {
@@ -222,13 +254,31 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
 
     return (
         <div className="space-y-6 animate-fade-in-up pb-8">
+            {/* Header & Controls */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                 <div>
                     <h2 className="text-3xl font-bold text-white tracking-tight">Dashboard de Análise</h2>
                     <p className="text-brand-light mt-1">
                         Visão estratégica para: <span className="font-semibold text-brand-cyan">{municipality}</span>
-                        {isRefreshing && <span className="ml-2 text-xs text-brand-blue animate-pulse font-medium">• Coletando novos dados...</span>}
                     </p>
+                    
+                    {/* Novo Rótulo de Status de Inteligência */}
+                    {data?.lastAnalysis && (
+                        <div className="mt-2 inline-flex items-center bg-brand-secondary/80 border border-brand-accent rounded-md px-3 py-1.5 shadow-sm">
+                            <div className="flex flex-col mr-4 border-r border-brand-accent pr-4">
+                                <span className="text-[10px] text-brand-light uppercase font-bold tracking-wider">Última Análise</span>
+                                <span className="text-xs text-white font-mono">
+                                    {new Date(data.lastAnalysis).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] text-brand-light uppercase font-bold tracking-wider">Próxima Atualização</span>
+                                <span className={`text-xs font-mono font-bold ${nextUpdateLabel === 'Atualizando agora...' ? 'text-brand-blue animate-pulse' : 'text-green-400'}`}>
+                                    {nextUpdateLabel}
+                                </span>
+                            </div>
+                        </div>
+                    )}
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-3">
@@ -256,14 +306,15 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
                     <button 
                         onClick={() => fetchData(true)}
                         disabled={isInitialLoading || isRefreshing}
-                        className="flex items-center bg-brand-accent hover:bg-brand-blue text-white text-sm font-semibold py-2 px-4 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                        className="flex items-center bg-brand-accent hover:bg-brand-blue text-white text-sm font-semibold py-2 px-4 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm group"
                     >
-                        <RefreshIcon className={`mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                        <RefreshIcon className={`mr-2 group-hover:rotate-180 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : ''}`} />
                         {isRefreshing ? 'Atualizando...' : 'Atualizar Dados (IA)'}
                     </button>
                 </div>
             </div>
 
+            {/* Grid de Widgets */}
             <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                 {widgets.map((widget, index) => {
                     if (!widget.visible) return null;
