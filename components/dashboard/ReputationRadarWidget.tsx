@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { memo } from 'react';
 import type { ReputationRadar } from '../../types';
 import Card from './Card';
 import Spinner from '../common/Spinner';
@@ -23,7 +22,11 @@ const getTendencyIcon = (tendency: ReputationRadar['tendency']) => {
 
 const ReputationRadarWidget: React.FC<ReputationRadarWidgetProps> = ({ data, isLoading }) => {
     return (
-        <Card title="Radar de Reputação Estratégico" contentClassName="flex flex-col items-center justify-center text-center h-full">
+        <Card 
+            title="Radar de Reputação Estratégico" 
+            contentClassName="flex flex-col items-center justify-center text-center h-full"
+            infoTooltip="Índice consolidado (0-100) gerado por IA. Pondera o volume de menções negativas, gravidade de processos judiciais e sentimento público recente."
+        >
             {isLoading || !data ? (
                 <Spinner />
             ) : (
@@ -43,4 +46,4 @@ const ReputationRadarWidget: React.FC<ReputationRadarWidgetProps> = ({ data, isL
     );
 };
 
-export default ReputationRadarWidget;
+export default memo(ReputationRadarWidget);

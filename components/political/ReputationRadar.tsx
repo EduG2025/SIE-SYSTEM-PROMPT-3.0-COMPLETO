@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import type { ReputationData } from '../../types';
@@ -7,6 +8,8 @@ interface ReputationRadarProps {
 }
 
 const ReputationRadar: React.FC<ReputationRadarProps> = ({ data }) => {
+  if (!data) return null;
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <RadarChart cx="50%" cy="50%" outerRadius="80%" data={data}>

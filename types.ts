@@ -21,9 +21,10 @@ export interface ReputationData {
 export interface Connection {
   id: string; // Pode ser ID de outro político ou CNPJ de empresa
   name: string;
-  type: 'Político' | 'Empresa' | 'Doador';
+  type: 'Político' | 'Empresa' | 'Doador' | 'Laranja' | 'Familiar';
   relationship: string;
   risk: RiskLevel;
+  details?: string; // Detalhe da irregularidade ou motivo da conexão
 }
 
 export interface GeminiAnalysisResult {
@@ -77,6 +78,14 @@ export interface Politician {
   position: string;
   imageUrl: string;
   bio: string;
+  salary?: number; // Salário mensal atual
+  socialMedia?: {
+      instagram?: string;
+      facebook?: string;
+      twitter?: string;
+      followers?: number;
+  };
+  monitored?: boolean; // Novo campo para monitoramento constante
   risks: {
     judicial: RiskLevel;
     financial: RiskLevel;
@@ -157,6 +166,8 @@ export interface TimelineEvent {
   description: string;
   category: 'Nomination' | 'Contract' | 'Lawsuit' | 'Social Media';
   icon: string;
+  relatedId?: string; // ID para linkar ao módulo específico (ex: ID do contrato, ID do processo)
+  relatedModule?: string; // Nome do módulo de destino para Deep Linking
 }
 
 export interface ChatMessage {
@@ -398,4 +409,65 @@ export interface PoliticalModuleRules {
     // Timeline
     timeline_event_filter: string[]; // ['Homenagens', 'Eventos Sociais', 'Administrativo', 'Judicial']
     timeline_max_years: number;
+}
+
+// --- Tipos para o Módulo de Pesquisa Investigativa (Perplexity-style) ---
+
+export interface SearchFilters {
+    fileType: 'any' | 'pdf' | 'xlsx' | 'docx';
+    sourceType: 'any' | 'official' | 'news' | 'social';
+    dateRange: 'any' | '24h' | 'week' | 'month' | 'year';
+    domain?: string;
+}
+
+export interface SearchSource {
+    title: string;
+    uri: string;
+    snippet?: string;
+}
+
+export interface ExtractedEntity {
+    name: string;
+    type: 'Person' | 'Company' | 'Value' | 'Date' | 'Location';
+    context: string;
+    dbMatchId?: string; // Se encontrado no banco local, armazena o ID
+    dbMatchType?: 'politician' | 'company' | 'employee'; // Tipo de match para roteamento
+}
+
+export interface MediaResult {
+    type: 'image' | 'video';
+    url: string;
+    source: string;
+    description?: string;
+}
+
+export interface RelatedProfile {
+    name: string;
+    platform: 'Instagram' | 'Facebook' | 'Twitter' | 'LinkedIn' | 'Web';
+    url: string;
+    relevance: 'Alta' | 'Média' | 'Baixa';
+}
+
+export interface InvestigationResult {
+    answer: string; // Texto rico em Markdown
+    sources: SearchSource[];
+    entities: ExtractedEntity[];
+    media: MediaResult[];
+    relatedProfiles: RelatedProfile[];
+    followUpQuestions: string[];
+}
+
+// Estrutura para comparação de campanhas
+export interface CampaignComparisonData {
+    preCampaign: {
+        discourse: string;
+        spending: number;
+        alliances: string[];
+    };
+    duringCampaign: {
+        discourse: string;
+        spending: number;
+        alliances: string[];
+    };
+    analysis: string; // Texto explicativo da mudança
 }

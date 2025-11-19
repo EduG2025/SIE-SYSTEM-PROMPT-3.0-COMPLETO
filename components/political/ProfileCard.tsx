@@ -1,3 +1,4 @@
+
 import React, { lazy, Suspense } from 'react';
 import type { Politician } from '../../types';
 import Section from './Section';
@@ -17,11 +18,43 @@ const UserGroupIcon: React.FC = () => (
 const ProfileCard: React.FC<ProfileCardProps> = ({ politician }) => (
     <Section icon={<UserGroupIcon />} title="Perfil do Político">
         <div className="text-center">
-            <img src={politician.imageUrl} alt={politician.name} className="w-32 h-32 rounded-full mx-auto border-4 border-brand-accent object-cover shadow-md" />
+            <img 
+                src={politician.imageUrl} 
+                alt={politician.name} 
+                className="w-32 h-32 rounded-full mx-auto border-4 border-brand-accent object-cover shadow-md" 
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(politician.name)}&background=random&color=fff&size=128`;
+                }}
+            />
             <h2 className="text-2xl font-bold mt-4 text-white">{politician.name}</h2>
             <p className="text-brand-cyan font-semibold">{politician.position}</p>
             <p className="text-brand-light text-sm">{politician.party} - {politician.state}</p>
-            <p className="text-xs text-gray-400 mt-3 p-2 bg-black/20 rounded-md">{politician.bio}</p>
+            
+            {/* Salário e Redes Sociais */}
+            <div className="flex justify-center gap-4 my-4 text-sm">
+                {politician.salary && (
+                    <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded">
+                        <span className="text-brand-light text-xs">Salário Estimado</span>
+                        <span className="font-bold text-green-400">
+                            {politician.salary.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                    </div>
+                )}
+                {politician.socialMedia?.followers && (
+                     <div className="flex flex-col items-center bg-brand-primary/30 px-3 py-1 rounded">
+                        <span className="text-brand-light text-xs">Seguidores</span>
+                        <span className="font-bold text-blue-400">
+                            {new Intl.NumberFormat('pt-BR', { notation: 'compact', compactDisplay: 'short' }).format(politician.socialMedia.followers)}
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            <p className="text-xs text-gray-400 mt-2 p-3 bg-black/20 rounded-md text-left leading-relaxed">
+                {politician.bio || "Biografia não disponível. Clique em 'Investigar' para coletar dados."}
+            </p>
+
             <div className="grid grid-cols-3 gap-2 mt-4">
                 <RiskIndicator level={politician.risks.judicial} title="Judicial" />
                 <RiskIndicator level={politician.risks.financial} title="Financeiro" />
@@ -29,7 +62,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ politician }) => (
             </div>
              <div className="mt-4 h-52">
                 <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner /></div>}>
-                    <ReputationRadar data={politician.reputation} />
+                    {/* FIX: Fallback para array vazio para evitar erro 'reading stroke' no Recharts */}
+                    <ReputationRadar data={politician.reputation || []} />
                 </Suspense>
             </div>
         </div>

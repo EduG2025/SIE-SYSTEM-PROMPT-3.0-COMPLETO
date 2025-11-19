@@ -1,3 +1,4 @@
+
 import React, { lazy } from 'react';
 import type { ViewType } from './types';
 
@@ -14,4 +15,5 @@ export const moduleRegistry: Record<ViewType, React.LazyExoticComponent<React.FC
   timeline: lazy(() => import('./components/TimelineModule')),
   // O módulo de OCR é agora um componente funcional importado via lazy loading.
   ocr: lazy(() => import('./components/OcrModule')),
+  research: lazy(() => import('./components/ResearchModule')),
 };

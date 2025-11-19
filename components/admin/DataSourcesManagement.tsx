@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { dbService } from '../../services/dbService';
 import { findAndClassifyDataSources } from '../../services/geminiService';
@@ -8,6 +9,7 @@ import SuggestedSourcesModal from './datasources/SuggestedSourcesModal';
 import AIActionsPanel from './datasources/AIActionsPanel';
 import AIAutomationPanel from './datasources/AIAutomationPanel';
 import DataSourceCategoryView from './datasources/DataSourceCategoryView';
+import PoliticalRulesPanel from './datasources/PoliticalRulesPanel';
 
 interface DataSourcesManagementProps {
     showToast: (message: string, type: 'success' | 'error') => void;
@@ -168,24 +170,30 @@ const DataSourcesManagement: React.FC<DataSourcesManagementProps> = ({ showToast
                  />
             )}
 
-            <AIActionsPanel
-                onSearch={handleSearchSources}
-                onValidate={handleValidateSources}
-                loading={loading}
-            />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div className="space-y-6">
+                    <AIActionsPanel
+                        onSearch={handleSearchSources}
+                        onValidate={handleValidateSources}
+                        loading={loading}
+                    />
+                    {automationSettings && (
+                        <AIAutomationPanel
+                            initialSettings={automationSettings}
+                            onSave={async (settings) => {
+                                await dbService.saveAiAutomationSettings(settings);
+                                showToast('Configurações de automação salvas!', 'success');
+                                fetchData();
+                            }}
+                        />
+                    )}
+                </div>
+                <div>
+                    <PoliticalRulesPanel onSave={() => showToast('Regras de Inteligência Política atualizadas!', 'success')} />
+                </div>
+            </div>
 
-            {automationSettings && (
-                <AIAutomationPanel
-                    initialSettings={automationSettings}
-                    onSave={async (settings) => {
-                        await dbService.saveAiAutomationSettings(settings);
-                        showToast('Configurações de automação salvas!', 'success');
-                        fetchData();
-                    }}
-                />
-            )}
-
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mt-8">
                 <h2 className="text-2xl font-bold">Fontes de Dados Cadastradas</h2>
                 <button onClick={handleAddCategory} className="bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg">
                     Adicionar Categoria

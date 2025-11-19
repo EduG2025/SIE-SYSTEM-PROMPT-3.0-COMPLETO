@@ -24,6 +24,10 @@ const MayorInfoCard: React.FC<MayorInfoCardProps> = ({ official, isLoading }) =>
                 src={official.avatarUrl} 
                 alt={`Foto de ${official.name}`} 
                 className="w-20 h-20 rounded-full object-cover border-2 border-brand-accent flex-shrink-0"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(official.name)}&background=random&color=fff&size=128`;
+                }}
             />
             <div className="ml-4">
                 <h3 className="font-bold text-lg text-white">{official.name}</h3>

@@ -29,6 +29,8 @@ const getAnalysisSteps = (view: ViewType): string[] => {
              return [...commonSteps, 'Coletando posts públicos de Facebook e Instagram...', 'Analisando sentimento e relevância...', 'Identificando temas de crise...', finalStep];
         case 'timeline':
             return [...commonSteps, 'Coletando eventos de todas as fontes...', 'Ordenando cronologicamente os fatos...', 'Identificando marcos importantes...', finalStep];
+        case 'research':
+            return ['Configurando motor de busca investigativa...', 'Calibrando filtros de fontes oficiais...', 'Carregando histórico de pesquisas...', finalStep];
         case 'dashboard':
         default:
             return [

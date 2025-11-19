@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
@@ -22,6 +20,7 @@ import GlobalLoadingBar from './components/common/GlobalLoadingBar';
 // FIX: Lazily load module components to resolve 'Cannot find name' errors.
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const PoliticalModule = lazy(() => import('./components/PoliticalModule'));
+const PoliticalNetwork = lazy(() => import('./components/PoliticalNetwork')); // Nova Visão de Rede
 const EmployeesModule = lazy(() => import('./components/EmployeesModule'));
 const CompaniesModule = lazy(() => import('./components/CompaniesModule'));
 const ContractsModule = lazy(() => import('./components/ContractsModule'));
@@ -158,9 +157,10 @@ const AppRouter: React.FC = () => {
                       <Route path="/dashboard" element={<Dashboard municipality={municipality || ''} />} />
                       <Route path="/dashboard/settings" element={<DashboardSettings />} />
                       
-                      {/* Rota dinâmica para o módulo político */}
+                      {/* Rota da Visão de Rede Política (Index) */}
+                      <Route path="/political" element={<PoliticalNetwork />} />
+                      {/* Rota dinâmica para o detalhe do político */}
                       <Route path="/political/:politicianId" element={<PoliticalModule />} />
-                      <Route path="/political" element={<Navigate to="/political/politician-001" replace />} />
                       <Route path="/political/settings" element={<PoliticalSettings />} />
 
                       <Route path="/employees" element={<EmployeesModule />} />

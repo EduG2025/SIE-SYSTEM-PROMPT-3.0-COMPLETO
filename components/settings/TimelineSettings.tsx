@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ModuleSettingsLayout from './ModuleSettingsLayout';
 import ToggleSwitch from '../common/ToggleSwitch';
+import { dbService } from '../../services/dbService';
 
 const TimelineSettings: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
@@ -11,10 +12,19 @@ const TimelineSettings: React.FC = () => {
         showLawsuits: true,
         showSocialMedia: false,
     });
+    const [aiRules, setAiRules] = useState('');
 
-    const handleSave = () => {
+    useEffect(() => {
+        const loadRules = async () => {
+             const mod = await dbService.getModule('timeline');
+             if(mod) setAiRules(mod.rules || '');
+        };
+        loadRules();
+    }, []);
+
+    const handleSave = async () => {
         setIsSaving(true);
-        console.log("Saving timeline settings:", settings);
+        await dbService.saveModuleRules('timeline', aiRules);
         setTimeout(() => setIsSaving(false), 1500);
     };
 
@@ -24,6 +34,16 @@ const TimelineSettings: React.FC = () => {
 
     return (
         <ModuleSettingsLayout moduleName="Linha do Tempo" onSave={handleSave} isSaving={isSaving}>
+            <div className="bg-brand-primary p-4 rounded-lg">
+                <h4 className="text-lg font-semibold mb-3 text-white">Regras da IA (System Prompt)</h4>
+                <textarea 
+                    value={aiRules}
+                    onChange={(e) => setAiRules(e.target.value)}
+                    className="w-full h-32 bg-brand-secondary border border-brand-accent rounded p-2 text-sm text-white font-mono focus:outline-none focus:border-brand-blue"
+                    placeholder="Ex: Priorizar eventos com datas confirmadas em diário oficial..."
+                />
+            </div>
+
             <div className="bg-brand-primary p-4 rounded-lg">
                 <h4 className="text-lg font-semibold mb-3 text-white">Visibilidade de Eventos</h4>
                 <p className="text-sm text-brand-light mb-4">Escolha quais tipos de eventos devem ser exibidos por padrão na linha do tempo.</p>

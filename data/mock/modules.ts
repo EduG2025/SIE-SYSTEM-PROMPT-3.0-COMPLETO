@@ -16,6 +16,7 @@ const defaultPoliticalRules = JSON.stringify({
 
 export const initialModules: Module[] = [
     { id: 'mod-dash', name: 'Dashboard', view: 'dashboard', icon: 'dashboard', active: true, hasSettings: true, updateFrequency: '12h', lastUpdate: new Date().toISOString() },
+    { id: 'mod-res', name: 'Pesquisa (IA)', view: 'research', icon: 'search-circle', active: true, hasSettings: false, updateFrequency: 'realtime', lastUpdate: new Date().toISOString() },
     { id: 'mod-poli', name: 'Político', view: 'political', icon: 'political', active: true, hasSettings: true, rules: defaultPoliticalRules, updateFrequency: '24h', lastUpdate: new Date().toISOString() },
     { id: 'mod-func', name: 'Funcionários', view: 'employees', icon: 'employees', active: true, hasSettings: true, updateFrequency: 'weekly', lastUpdate: new Date().toISOString() },
     { id: 'mod-empr', name: 'Empresas', view: 'companies', icon: 'companies', active: true, hasSettings: true, updateFrequency: '24h', lastUpdate: new Date().toISOString() },

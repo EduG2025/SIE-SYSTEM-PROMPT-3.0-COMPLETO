@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { memo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { SentimentDistribution } from '../../types';
 import Card from './Card';
@@ -24,7 +23,10 @@ const SentimentDistributionWidget: React.FC<SentimentDistributionWidgetProps> = 
     };
 
     return (
-        <Card title="Distribuição de Sentimento Geral">
+        <Card 
+            title="Distribuição de Sentimento Geral"
+            infoTooltip="Classificação automática do tom das interações. Positivo: Elogios/Apoio. Negativo: Denúncias/Críticas/Reclamações. Neutro: Informativo/Imparcial."
+        >
             {isLoading || !data ? (
                 <div className="h-[250px] flex items-center justify-center">
                     <Spinner />
@@ -61,4 +63,4 @@ const SentimentDistributionWidget: React.FC<SentimentDistributionWidgetProps> = 
     );
 };
 
-export default SentimentDistributionWidget;
+export default memo(SentimentDistributionWidget);

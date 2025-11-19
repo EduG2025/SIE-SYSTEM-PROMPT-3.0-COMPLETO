@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { CrisisTheme } from '../../types';
 import Card from './Card';
@@ -19,6 +19,10 @@ const CrisisThemesWidget: React.FC<CrisisThemesWidgetProps> = ({ data, isLoading
                 <div className="h-[250px] flex items-center justify-center">
                     <Spinner />
                 </div>
+            ) : data.length === 0 ? (
+                 <div className="h-[250px] flex items-center justify-center text-brand-light text-sm">
+                    Nenhum tema de crise identificado.
+                 </div>
             ) : (
                 <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
@@ -48,4 +52,4 @@ const CrisisThemesWidget: React.FC<CrisisThemesWidgetProps> = ({ data, isLoading
     );
 };
 
-export default CrisisThemesWidget;
+export default memo(CrisisThemesWidget);

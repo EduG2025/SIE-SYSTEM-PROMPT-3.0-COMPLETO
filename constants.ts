@@ -1,6 +1,4 @@
 
-
-
 import type { AdminViewType, ViewType } from './types';
 
 // Extended to include 'plans' which might be added to AdminViewType later or treated as extended key
@@ -25,4 +23,5 @@ export const viewTitles: Record<ViewType, string> = {
     social: 'Monitoramento de Redes Sociais',
     timeline: 'Linha do Tempo de Eventos Críticos',
     ocr: 'OCR Jurídico',
+    research: 'Investigação Profunda',
 };

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { DataSource, DataSourceCategory } from '../../../types';
 import ToggleSwitch from '../../common/ToggleSwitch';
@@ -41,8 +42,8 @@ const DataSourceCategoryView: React.FC<DataSourceCategoryViewProps> = ({
                 </div>
             </div>
             <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                     <thead className="border-b border-brand-accent">
+                <table className="w-full text-left text-sm border-collapse">
+                     <thead className="border-b border-brand-accent bg-brand-secondary">
                         <tr>
                             <th className="p-3 w-1/12">Ativa</th>
                             <th className="p-3 w-3/12">Nome</th>
@@ -55,7 +56,7 @@ const DataSourceCategoryView: React.FC<DataSourceCategoryViewProps> = ({
                     </thead>
                     <tbody>
                         {category.sources.map(source => (
-                            <tr key={source.id} className="border-b border-brand-accent/50 hover:bg-brand-accent/30">
+                            <tr key={source.id} className="border-b border-brand-accent/50 hover:bg-brand-accent/30 even:bg-brand-accent/10">
                                 <td className="p-3">
                                     <ToggleSwitch checked={source.active} onChange={() => onToggleActive(source.id)} />
                                 </td>

@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ModuleSettingsLayout from './ModuleSettingsLayout';
 import ToggleSwitch from '../common/ToggleSwitch';
+import { dbService } from '../../services/dbService';
 
 const EmployeesSettings: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
@@ -9,15 +10,36 @@ const EmployeesSettings: React.FC = () => {
         enableNepotismAlerts: true,
         keywordAlerts: 'Assessor Especial, Chefe de Gabinete',
     });
+    const [aiRules, setAiRules] = useState('');
 
-    const handleSave = () => {
+    useEffect(() => {
+        const loadRules = async () => {
+             const mod = await dbService.getModule('employees');
+             if(mod) setAiRules(mod.rules || '');
+        };
+        loadRules();
+    }, []);
+
+    const handleSave = async () => {
         setIsSaving(true);
-        console.log("Saving employees settings:", settings);
-        setTimeout(() => setIsSaving(false), 1500);
+        await dbService.saveModuleRules('employees', aiRules);
+        // Here you would save other settings to DB as well if structured
+        setTimeout(() => setIsSaving(false), 1000);
     };
 
     return (
         <ModuleSettingsLayout moduleName="Funcionários" onSave={handleSave} isSaving={isSaving}>
+            <div className="bg-brand-primary p-4 rounded-lg">
+                <h4 className="text-lg font-semibold mb-3 text-white">Regras da IA (System Prompt)</h4>
+                <p className="text-sm text-brand-light mb-2">Defina instruções específicas que a IA deve seguir ao buscar e analisar funcionários.</p>
+                <textarea 
+                    value={aiRules}
+                    onChange={(e) => setAiRules(e.target.value)}
+                    className="w-full h-32 bg-brand-secondary border border-brand-accent rounded p-2 text-sm text-white font-mono focus:outline-none focus:border-brand-blue"
+                    placeholder="Ex: Dê prioridade para cargos comissionados e parentes de políticos..."
+                />
+            </div>
+
             <div className="bg-brand-primary p-4 rounded-lg">
                 <h4 className="text-lg font-semibold mb-3 text-white">Alertas Inteligentes</h4>
                 <p className="text-sm text-brand-light mb-4">Configure alertas automáticos para detecção de anomalias.</p>

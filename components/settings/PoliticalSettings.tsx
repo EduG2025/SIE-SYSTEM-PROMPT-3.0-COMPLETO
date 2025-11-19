@@ -9,17 +9,17 @@ const PoliticalSettings: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [loading, setLoading] = useState(true);
     
-    // Estado inicial padrão
+    // Estado inicial padrão alinhado com PoliticalModuleRules
     const [rules, setRules] = useState<PoliticalModuleRules>({
         priority_risk_areas: ['Judicial', 'Financeiro'],
-        weight_judicial_risk: 5,
+        weight_judicial_risk: 8,
         network_depth_level: 2,
-        min_connection_value: 1000,
+        min_connection_value: 5000,
         nepotism_window_months: 48,
         critical_positions: [],
         mandatory_cpf_cnpj_check: true,
         timeline_event_filter: [],
-        timeline_max_years: 4
+        timeline_max_years: 5
     });
 
     // Helper para inputs de texto separados por vírgula
@@ -32,10 +32,11 @@ const PoliticalSettings: React.FC = () => {
                 if (module && module.rules) {
                     try {
                         const parsedRules = JSON.parse(module.rules);
-                        setRules(parsedRules);
+                        // Merge com defaults para garantir que novos campos não quebrem
+                        setRules(prev => ({ ...prev, ...parsedRules }));
                         setCriticalPosText(parsedRules.critical_positions?.join(', ') || '');
                     } catch (e) {
-                        console.error("Erro ao fazer parse das regras:", e);
+                        console.error("Erro ao fazer parse das regras, usando padrão:", e);
                     }
                 }
             } catch (error) {
@@ -50,14 +51,15 @@ const PoliticalSettings: React.FC = () => {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Converte o texto de volta para array
-            const updatedRules = {
+            // Converte o texto de volta para array e limpa espaços
+            const updatedRules: PoliticalModuleRules = {
                 ...rules,
-                critical_positions: criticalPosText.split(',').map(s => s.trim()).filter(s => s)
+                critical_positions: criticalPosText.split(',').map(s => s.trim()).filter(s => s !== '')
             };
             
             // Salva como string JSON no dbService
             await dbService.saveModuleRules('political', JSON.stringify(updatedRules));
+            
             // Pequeno delay para feedback visual
             setTimeout(() => setIsSaving(false), 800);
         } catch (error) {
@@ -84,23 +86,23 @@ const PoliticalSettings: React.FC = () => {
         });
     };
 
-    if (loading) return <div className="p-8 text-center text-brand-light">Carregando configurações...</div>;
+    if (loading) return <div className="p-8 text-center text-brand-light">Carregando configurações da IA...</div>;
 
     return (
-        <ModuleSettingsLayout moduleName="Político" onSave={handleSave} isSaving={isSaving}>
+        <ModuleSettingsLayout moduleName="Análise Política (IA)" onSave={handleSave} isSaving={isSaving}>
             
             {/* Seção A: Priorização de Risco */}
             <div className="bg-brand-primary p-5 rounded-lg border border-brand-accent/30">
                 <h4 className="text-lg font-semibold mb-3 text-white flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-brand-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    A. Priorização de Risco e Redes
+                    A. Priorização de Risco e Calibragem da IA
                 </h4>
-                <p className="text-sm text-brand-light mb-6">Defina como a IA deve ponderar os riscos e mapear conexões.</p>
+                <p className="text-sm text-brand-light mb-6">Defina como a Inteligência Artificial deve ponderar os riscos e mapear conexões ao gerar relatórios.</p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium mb-3 text-gray-300">Áreas de Foco (Prioridade Alta)</label>
-                        <div className="space-y-2">
+                        <div className="space-y-3 bg-brand-secondary/30 p-3 rounded-lg border border-brand-accent/20">
                             {['Judicial', 'Financeiro', 'Mídia', 'Social'].map(area => (
                                 <div key={area} className="flex items-center">
                                     <input
@@ -108,18 +110,18 @@ const PoliticalSettings: React.FC = () => {
                                         id={`risk-${area}`}
                                         checked={rules.priority_risk_areas.includes(area)}
                                         onChange={() => toggleRiskArea(area)}
-                                        className="rounded bg-brand-secondary border-brand-accent text-brand-blue focus:ring-brand-blue"
+                                        className="rounded bg-brand-secondary border-brand-accent text-brand-blue focus:ring-brand-blue h-4 w-4 cursor-pointer"
                                     />
-                                    <label htmlFor={`risk-${area}`} className="ml-2 text-sm text-gray-400">{area}</label>
+                                    <label htmlFor={`risk-${area}`} className="ml-2 text-sm text-gray-300 cursor-pointer hover:text-white">{area}</label>
                                 </div>
                             ))}
                         </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         <div>
                             <label className="block text-sm font-medium mb-2 text-gray-300">
-                                Peso do Risco Judicial: <span className="text-brand-blue font-bold">{rules.weight_judicial_risk}</span>
+                                Peso do Risco Judicial (IA): <span className="text-brand-blue font-bold">{rules.weight_judicial_risk}/10</span>
                             </label>
                             <input
                                 type="range"
@@ -128,22 +130,23 @@ const PoliticalSettings: React.FC = () => {
                                 onChange={(e) => setRules({...rules, weight_judicial_risk: Number(e.target.value)})}
                                 className="w-full h-2 bg-brand-secondary rounded-lg appearance-none cursor-pointer accent-brand-blue"
                             />
-                            <div className="flex justify-between text-xs text-gray-500 mt-1"><span>Baixo</span><span>Crítico</span></div>
+                            <div className="flex justify-between text-xs text-gray-500 mt-1"><span>Conservador</span><span>Agressivo</span></div>
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium mb-2 text-gray-300">
-                                Profundidade da Rede de Conexões: <span className="text-brand-blue font-bold">{rules.network_depth_level}</span>
+                                Profundidade da Varredura de Redes
                             </label>
                             <select 
                                 value={rules.network_depth_level}
                                 onChange={(e) => setRules({...rules, network_depth_level: Number(e.target.value)})}
-                                className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white focus:ring-brand-blue focus:border-brand-blue"
+                                className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white focus:ring-brand-blue focus:border-brand-blue outline-none"
                             >
-                                <option value={1}>Nível 1 (Apenas diretas)</option>
-                                <option value={2}>Nível 2 (Conexões de conexões)</option>
-                                <option value={3}>Nível 3 (Varredura profunda)</option>
+                                <option value={1}>Nível 1 - Apenas Conexões Diretas (Rápido)</option>
+                                <option value={2}>Nível 2 - Conexões de 2º Grau (Padrão)</option>
+                                <option value={3}>Nível 3 - Varredura Profunda (Lento / Alto Custo)</option>
                             </select>
+                            <p className="text-xs text-brand-light mt-1">Define até que nível a IA busca associados e laranjas.</p>
                         </div>
                     </div>
                 </div>
@@ -157,18 +160,20 @@ const PoliticalSettings: React.FC = () => {
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-300">Janela de Nepotismo (Meses)</label>
+                        <label className="block text-sm font-medium mb-2 text-gray-300">Janela de Análise de Nepotismo (Meses)</label>
                         <input
                             type="number"
                             value={rules.nepotism_window_months}
                             onChange={(e) => setRules({...rules, nepotism_window_months: Number(e.target.value)})}
-                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white"
+                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white focus:border-brand-blue outline-none"
                         />
-                        <p className="text-xs text-gray-500 mt-1">Período para cruzar nomeações com a posse.</p>
+                        <p className="text-xs text-gray-500 mt-1">Período retroativo para cruzar nomeações com a posse.</p>
                     </div>
                     
-                    <div className="flex items-center justify-between p-3 bg-brand-secondary rounded-md border border-brand-accent/20 h-min mt-auto">
-                        <label className="text-sm font-medium text-gray-300">Verificação Obrigatória de CPF/CNPJ</label>
+                    <div className="flex items-center justify-between p-3 bg-brand-secondary/30 rounded-md border border-brand-accent/20 h-min mt-auto">
+                        <label className="text-sm font-medium text-gray-300 cursor-pointer" onClick={() => setRules(r => ({...r, mandatory_cpf_cnpj_check: !r.mandatory_cpf_cnpj_check}))}>
+                            Verificação Obrigatória de CPF/CNPJ
+                        </label>
                         <ToggleSwitch 
                             checked={rules.mandatory_cpf_cnpj_check} 
                             onChange={(c) => setRules({...rules, mandatory_cpf_cnpj_check: c})} 
@@ -176,13 +181,13 @@ const PoliticalSettings: React.FC = () => {
                     </div>
 
                     <div className="md:col-span-2">
-                        <label className="block text-sm font-medium mb-2 text-gray-300">Cargos Críticos (separados por vírgula)</label>
+                        <label className="block text-sm font-medium mb-2 text-gray-300">Cargos Críticos para Monitoramento (separados por vírgula)</label>
                         <textarea
-                            rows={2}
+                            rows={3}
                             value={criticalPosText}
                             onChange={(e) => setCriticalPosText(e.target.value)}
-                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white placeholder-gray-600"
-                            placeholder="Ex: Secretário de Finanças, Chefe de Gabinete, Tesoureiro"
+                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white placeholder-gray-600 focus:border-brand-blue outline-none"
+                            placeholder="Ex: Secretário de Finanças, Chefe de Gabinete, Tesoureiro, Presidente da CPL"
                         />
                     </div>
                 </div>
@@ -196,32 +201,33 @@ const PoliticalSettings: React.FC = () => {
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label className="block text-sm font-medium mb-3 text-gray-300">Filtros de Eventos (Excluir)</label>
+                        <label className="block text-sm font-medium mb-3 text-gray-300">Ignorar Eventos (Filtro de Ruído)</label>
                         <div className="flex flex-wrap gap-2">
-                            {['Homenagens', 'Eventos Sociais', 'Administrativo', 'Judicial'].map(filter => (
+                            {['Homenagens', 'Eventos Sociais', 'Administrativo', 'Judicial', 'Inaugurações'].map(filter => (
                                 <button
                                     key={filter}
                                     type="button"
                                     onClick={() => toggleTimelineFilter(filter)}
                                     className={`px-3 py-1 rounded-full text-xs border transition-colors ${
                                         rules.timeline_event_filter.includes(filter)
-                                            ? 'bg-red-500/20 border-red-500 text-red-300'
-                                            : 'bg-brand-secondary border-brand-accent text-gray-400 hover:border-brand-light'
+                                            ? 'bg-red-500/20 border-red-500 text-red-300 hover:bg-red-500/30'
+                                            : 'bg-brand-secondary border-brand-accent text-gray-400 hover:border-brand-light hover:text-white'
                                     }`}
                                 >
-                                    {rules.timeline_event_filter.includes(filter) ? 'Excluído' : filter}
+                                    {rules.timeline_event_filter.includes(filter) ? 'Ignorado' : filter}
                                 </button>
                             ))}
                         </div>
+                        <p className="text-xs text-gray-500 mt-2">Clique para ocultar tipos de eventos irrelevantes na linha do tempo.</p>
                     </div>
                     <div>
-                         <label className="block text-sm font-medium mb-2 text-gray-300">Período Máximo (Anos)</label>
+                         <label className="block text-sm font-medium mb-2 text-gray-300">Histórico Máximo (Anos)</label>
                         <input
                             type="number"
                             min="1" max="20"
                             value={rules.timeline_max_years}
                             onChange={(e) => setRules({...rules, timeline_max_years: Number(e.target.value)})}
-                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white"
+                            className="w-full bg-brand-secondary border border-brand-accent rounded-md p-2 text-sm text-white focus:border-brand-blue outline-none"
                         />
                     </div>
                 </div>

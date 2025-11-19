@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ModuleSettingsLayout from './ModuleSettingsLayout';
+import { dbService } from '../../services/dbService';
 
 const JudicialSettings: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
@@ -8,15 +9,34 @@ const JudicialSettings: React.FC = () => {
         courtFilter: 'Todos',
         keywordAlerts: 'Improbidade, Corrupção, Lavagem de Dinheiro',
     });
+    const [aiRules, setAiRules] = useState('');
 
-    const handleSave = () => {
+    useEffect(() => {
+        const loadRules = async () => {
+             const mod = await dbService.getModule('judicial');
+             if(mod) setAiRules(mod.rules || '');
+        };
+        loadRules();
+    }, []);
+
+    const handleSave = async () => {
         setIsSaving(true);
-        console.log("Saving judicial settings:", settings);
+        await dbService.saveModuleRules('judicial', aiRules);
         setTimeout(() => setIsSaving(false), 1500);
     };
 
     return (
         <ModuleSettingsLayout moduleName="Judicial" onSave={handleSave} isSaving={isSaving}>
+            <div className="bg-brand-primary p-4 rounded-lg">
+                <h4 className="text-lg font-semibold mb-3 text-white">Regras da IA (System Prompt)</h4>
+                <textarea 
+                    value={aiRules}
+                    onChange={(e) => setAiRules(e.target.value)}
+                    className="w-full h-32 bg-brand-secondary border border-brand-accent rounded p-2 text-sm text-white font-mono focus:outline-none focus:border-brand-blue"
+                    placeholder="Ex: Buscar apenas processos transitados em julgado..."
+                />
+            </div>
+
             <div className="bg-brand-primary p-4 rounded-lg">
                 <h4 className="text-lg font-semibold mb-3 text-white">Filtros e Monitoramento</h4>
                 <p className="text-sm text-brand-light mb-4">Defina filtros padrão e palavras-chave para monitorar em processos.</p>

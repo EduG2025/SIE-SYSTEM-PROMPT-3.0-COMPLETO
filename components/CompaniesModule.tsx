@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { Company } from '../types';
@@ -21,9 +20,15 @@ const CompaniesModule: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
-            const data = await dbService.getCompanies();
-            setCompanies(data);
-            setLoading(false);
+            try {
+                const data = await dbService.getCompanies();
+                setCompanies(data || []);
+            } catch (error) {
+                console.error("Failed to load companies", error);
+                setCompanies([]);
+            } finally {
+                setLoading(false);
+            }
         };
         fetchData();
     }, []);
@@ -43,11 +48,22 @@ const CompaniesModule: React.FC = () => {
             return companies;
         }
         return companies.filter(company =>
-            company.name.toLowerCase().includes(lowercasedFilter) ||
-            company.totalContractsValue.toString().includes(searchTerm)
+            (company.name || '').toLowerCase().includes(lowercasedFilter) ||
+            String(company.totalContractsValue || '').includes(searchTerm)
         );
     }, [searchTerm, companies]);
     
+    const formatCurrency = (val: number | string | undefined) => {
+        if (val === undefined || val === null) return 'R$ 0,00';
+        // Se a IA retornar string com símbolos, tenta limpar
+        const num = typeof val === 'string' 
+            ? parseFloat(val.replace(/[^\d.-]/g, '')) 
+            : val;
+            
+        if (isNaN(num)) return 'Valor inválido';
+        return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
     if (loading) {
         return (
             <div className="w-full h-full flex items-center justify-center">
@@ -80,25 +96,27 @@ const CompaniesModule: React.FC = () => {
                     </thead>
                     <tbody>
                         {filteredCompanies.length > 0 ? (
-                            filteredCompanies.map((c) => {
+                            filteredCompanies.map((c, idx) => {
                                 const isHighlighted = c.name === highlightedCompany;
                                 return (
                                 <tr 
-                                    key={c.id} 
+                                    key={c.id || idx} 
                                     ref={isHighlighted ? highlightedRowRef : null}
                                     className={`border-b border-brand-accent/50 transition-all duration-500 ${isHighlighted ? 'bg-brand-blue/20 ring-2 ring-brand-blue' : 'hover:bg-brand-accent/50'}`}
                                 >
-                                    <td className="p-3 font-medium">{c.name}</td>
-                                    <td className="p-3 text-brand-light">{c.cnpj}</td>
-                                    <td className="p-3 text-brand-light">{c.totalContractsValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                    <td className="p-3 font-bold" style={{ color: c.riskScore > 8 ? '#f87171' : c.riskScore > 6 ? '#fbbf24' : '#4ade80' }}>{c.riskScore}/10</td>
+                                    <td className="p-3 font-medium">{c.name || 'Nome não informado'}</td>
+                                    <td className="p-3 text-brand-light">{c.cnpj || '---'}</td>
+                                    <td className="p-3 text-brand-light">{formatCurrency(c.totalContractsValue)}</td>
+                                    <td className="p-3 font-bold" style={{ color: (c.riskScore || 0) > 8 ? '#f87171' : (c.riskScore || 0) > 6 ? '#fbbf24' : '#4ade80' }}>
+                                        {(c.riskScore || 0)}/10
+                                    </td>
                                 </tr>
                                 )
                             })
                         ) : (
                             <tr>
-                                <td colSpan={4} className="text-center p-4 text-brand-light">
-                                    Nenhuma empresa encontrada.
+                                <td colSpan={4} className="text-center p-8 text-brand-light border border-dashed border-brand-accent rounded-lg">
+                                    Nenhuma empresa encontrada. Tente atualizar os dados no Dashboard.
                                 </td>
                             </tr>
                         )}

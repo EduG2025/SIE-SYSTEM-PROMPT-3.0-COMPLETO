@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules } from '../types';
+import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules, InvestigationResult, SearchFilters } from '../types';
 
 // --- CONSTANTES DE FALLBACK (MODO DE SEGURANÇA) ---
 const FALLBACK_DASHBOARD_DATA: DashboardData = {
@@ -25,7 +25,7 @@ const FALLBACK_DASHBOARD_DATA: DashboardData = {
     dataSources: ["Sistema em Modo de Segurança: Cota da API do Google Excedida. Tente novamente mais tarde."]
 };
 
-// Helper para extrair JSON limpo de respostas que podem conter texto ou markdown
+// Helper robusto para extrair JSON limpo de respostas que podem conter markdown ou texto adicional
 const extractJson = (text: string | undefined): any => {
     if (!text) return null;
     try {
@@ -38,11 +38,11 @@ const extractJson = (text: string | undefined): any => {
             try {
                 return JSON.parse(jsonMatch[1]);
             } catch (e2) {
-                console.warn("Falha ao parsear bloco JSON extraído:", e2);
+                console.warn("Falha ao parsear bloco JSON extraído, tentando limpeza manual:", e2);
             }
         }
         
-        // 3. Heurística de chaves/colchetes (último recurso)
+        // 3. Heurística de chaves/colchetes (procura o maior bloco JSON válido)
         const firstBrace = text.indexOf('{');
         const firstBracket = text.indexOf('[');
         
@@ -63,7 +63,13 @@ const extractJson = (text: string | undefined): any => {
              try {
                 return JSON.parse(candidate);
             } catch (e3) {
-                 console.warn("Falha ao parsear candidato a JSON:", e3);
+                 // Tentativa final: remover caracteres de controle invisíveis
+                 try {
+                    const cleanedCandidate = candidate.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+                    return JSON.parse(cleanedCandidate);
+                 } catch(e4) {
+                    console.warn("Falha crítica no parser de JSON:", e4);
+                 }
             }
         }
         
@@ -72,21 +78,16 @@ const extractJson = (text: string | undefined): any => {
 };
 
 // Helper para recuperar a chave do usuário atual ou usar o Load Balancer do sistema
-// E para verificar/incrementar a cota de uso
 const getEffectiveApiKey = async (currentUser?: User | null): Promise<string> => {
-    // Import dinâmico para evitar dependência circular
     const { dbService } = await import('./dbService');
 
-    // Se tiver usuário logado (não sendo uma operação puramente de sistema anônimo)
     if (currentUser) {
-        // 1. Verifica Cota
-        const quotaStatus = await dbService.checkAndIncrementQuota(currentUser.id, true); // increment = true
+        const quotaStatus = await dbService.checkAndIncrementQuota(currentUser.id, true); 
         
         if (!quotaStatus.allowed) {
             throw new Error(`Limite de cota excedido para o plano atual. Upgrade necessário. (${quotaStatus.usage}/${quotaStatus.limit})`);
         }
 
-        // 2. Se permitido, usa a chave (própria ou sistema)
         if (currentUser.canUseOwnApiKey && currentUser.apiKey) {
             return currentUser.apiKey;
         }
@@ -96,7 +97,6 @@ const getEffectiveApiKey = async (currentUser?: User | null): Promise<string> =>
         const systemKey = await dbService.getNextSystemApiKey();
         return systemKey;
     } catch (e) {
-        // Fallback silencioso para tentar ler do env se o DB falhar, ou lança erro
         if (process.env.API_KEY) return process.env.API_KEY;
         throw new Error("Nenhuma chave de API válida disponível no sistema. Contate o administrador.");
     }
@@ -115,7 +115,7 @@ const getModuleContextRules = async (moduleName: string): Promise<string> => {
         const { dbService } = await import('./dbService');
         const module = await dbService.getModule(moduleName);
         if (module && module.rules && module.rules.trim() !== '') {
-             return `\n\n[REGRAS ESPECÍFICAS DO ADMINISTRADOR PARA O MÓDULO ${moduleName.toUpperCase()}]:\n${module.rules}\n\n`;
+             return `\n\n[REGRAS ESTRATÉGICAS DO ADMINISTRADOR PARA ${moduleName.toUpperCase()}]:\n${module.rules}\n\n`;
         }
     } catch (e) {
         console.warn("Could not fetch module rules", e);
@@ -123,13 +123,11 @@ const getModuleContextRules = async (moduleName: string): Promise<string> => {
     return "";
 };
 
-
 // --- Análise Política ---
 
 export const analyzePoliticianProfile = async (politician: Politician): Promise<GeminiAnalysisResult> => {
     let currentUser = null;
     try {
-        // Tentativa de recuperar usuário para cota (workaround frontend-only)
         const { dbService } = await import('./dbService');
         const users = await dbService.getUsers();
         currentUser = users.find(u => u.status === 'Ativo') || users[0]; 
@@ -139,24 +137,18 @@ export const analyzePoliticianProfile = async (politician: Politician): Promise<
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
     
-        // Recupera regras genéricas (texto)
         let moduleRulesText = await getModuleContextRules('political');
         
-        // Lógica para processar regras estruturadas (JSON) se existirem
         try {
             const { dbService } = await import('./dbService');
             const module = await dbService.getModule('political');
             if (module && module.rules && module.rules.startsWith('{')) {
                 const rules = JSON.parse(module.rules) as PoliticalModuleRules;
-                // Converte o objeto de regras em instruções naturais para a IA
                 const structuredInstructions = [
-                    `\n[DIRETRIZES ESTRATÉGICAS DO ADMINISTRADOR]:`,
-                    `- Prioridade Máxima de Risco: ${rules.priority_risk_areas.join(', ') || 'Nenhuma específica'}.`,
-                    `- Peso do Risco Judicial (1-10): ${rules.weight_judicial_risk} (Considere isso ao calcular a gravidade).`,
-                    `- Profundidade da Análise de Rede: Nível ${rules.network_depth_level} (1=Direta, 3=Profunda).`,
-                    `- Cargos Críticos para Monitoramento: ${rules.critical_positions.join(', ') || 'Padrão'}.`,
-                    `- Janela de Nepotismo: Analisar nomeações nos últimos ${rules.nepotism_window_months} meses.`,
-                    `- Ignorar eventos da timeline do tipo: ${rules.timeline_event_filter.join(', ') || 'Nenhum'}.`
+                    `\n[DIRETRIZES DE ANÁLISE]:`,
+                    `- Área de Risco Prioritária: ${rules.priority_risk_areas.join(', ') || 'Geral'}.`,
+                    `- Peso do Risco Judicial (1-10): ${rules.weight_judicial_risk} (Considere alto se > 7).`,
+                    `- Profundidade: Nível ${rules.network_depth_level}.`,
                 ].join('\n');
                 
                 moduleRulesText = structuredInstructions;
@@ -165,13 +157,16 @@ export const analyzePoliticianProfile = async (politician: Politician): Promise<
             console.warn("Erro ao processar regras estruturadas de IA, usando texto padrão.", e);
         }
     
-        const systemInstruction = `Você é um assistente de IA especializado em análise política investigativa para o sistema "S.I.E.". Sua função é analisar os dados brutos de um político e fornecer um dossiê objetivo, estruturado e imparcial.
+        const systemInstruction = `Você é um Auditor Forense Político do S.I.E.
         ${moduleRulesText}
-        REGRAS ESTRITAS:
-        1. Baseie sua análise EXCLUSIVAMENTE nos dados JSON fornecidos.
-        2. Seja direto e analítico. Evite linguagem opinativa.
-        3. Sua resposta DEVE ser um único objeto JSON válido.
-        4. Siga o schema de resposta com precisão.`;
+        
+        Analise os dados fornecidos e gere um dossiê JSON estrito.
+        
+        REGRAS DE OUTPUT:
+        1. Responda APENAS JSON. Sem intro, sem markdown fora do JSON.
+        2. Seja imparcial, factual e direto (estilo perito criminal).
+        3. Se faltarem dados, inferir baseando-se no cargo e partido, mas indique como "Estimado".
+        `;
 
         const responseSchema = {
             type: Type.OBJECT,
@@ -185,10 +180,9 @@ export const analyzePoliticianProfile = async (politician: Politician): Promise<
             required: ["summary", "riskAnalysis", "connectionAnalysis", "campaignStrategy", "overallAssessment"],
         };
 
-        // Esta função NÃO usa googleSearch, então podemos usar responseMimeType JSON com segurança.
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Analise o seguinte perfil político e retorne um dossiê JSON:\n\n${JSON.stringify(politician, null, 2)}`,
+            contents: `Analise este perfil:\n\n${JSON.stringify(politician, null, 2)}`,
             config: {
                 systemInstruction,
                 responseMimeType: "application/json",
@@ -206,17 +200,6 @@ export const analyzePoliticianProfile = async (politician: Politician): Promise<
         };
     } catch (error) {
         console.error("Error calling Gemini for politician analysis:", error);
-        const msg = error instanceof Error ? error.message : "Erro desconhecido";
-        // Tratamento genérico de erro de cota
-        if (msg.includes("429") || msg.includes("Quota exceeded") || msg.includes("RESOURCE_EXHAUSTED")) {
-             return {
-                summary: "ANÁLISE INTERROMPIDA (COTA DE API)",
-                riskAnalysis: "O sistema atingiu o limite de requisições do Google Gemini.",
-                connectionAnalysis: "Aguarde alguns instantes ou verifique o plano.",
-                campaignStrategy: "Indisponível temporariamente.",
-                overallAssessment: "Modo de segurança ativado."
-            };
-        }
         return {
             summary: "Erro na análise.",
             riskAnalysis: "Indisponível.",
@@ -247,9 +230,6 @@ export const analyzeCampaignStrategyOnly = async (politician: Politician): Promi
         });
         return response.text || "Sem análise disponível.";
     } catch (error) {
-        console.error("Error calling Gemini for campaign strategy analysis:", error);
-        const msg = error instanceof Error ? error.message : "";
-        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) return "Limite de tráfego da IA excedido. Tente novamente mais tarde.";
         return "Não foi possível aprofundar a análise.";
     }
 };
@@ -275,32 +255,138 @@ export const getAIResponse = async (query: string, systemPrompt: string, current
     });
 
     let responseText = response.text || "Sem resposta gerada.";
-
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks && groundingChunks.length > 0) {
         const sources = groundingChunks
             .map((chunk: any) => chunk.web)
             .filter((web): web is { uri: string; title: string } => !!web?.uri);
-
         if (sources.length > 0) {
              const uniqueSources = Array.from(new Set(sources.map(s => s.uri)))
                 .map(uri => sources.find(s => s.uri === uri)!);
-
             responseText += "\n\n---\n**Fontes Consultadas:**\n";
             uniqueSources.forEach((source, index) => {
                 responseText += `${index + 1}. [${source.title || source.uri}](${source.uri})\n`;
             });
         }
     }
-    
     return responseText;
   } catch (error) {
     console.error("Error calling Gemini API:", error);
-    const msg = error instanceof Error ? error.message : "";
-    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) return "⚠️ A IA está sobrecarregada (Erro 429 - Cota Excedida). Por favor, aguarde um momento antes de fazer novas perguntas.";
-    if (msg.includes("Limite de cota")) return "Você atingiu o limite de requisições diárias do seu plano. Atualize para continuar.";
     return "Ocorreu um erro ao comunicar com a IA. Verifique sua chave de API ou tente novamente.";
   }
+};
+
+// --- INVESTIGAÇÃO PROFUNDA (DEEP SEARCH - PERPLEXITY STYLE) ---
+
+export const performDeepInvestigation = async (
+    query: string, 
+    filters: SearchFilters, 
+    currentUser?: User | null
+): Promise<InvestigationResult> => {
+    try {
+        const apiKey = await getEffectiveApiKey(currentUser);
+        const ai = getAiClient(apiKey);
+        
+        let advancedQuery = query;
+        if (filters.sourceType === 'official') advancedQuery += ' site:gov.br OR site:jus.br OR site:leg.br';
+        if (filters.sourceType === 'news') advancedQuery += ' (notícia OR reportagem OR escândalo)';
+        if (filters.fileType === 'pdf') advancedQuery += ' filetype:pdf';
+        if (filters.fileType === 'xlsx') advancedQuery += ' filetype:xlsx OR filetype:xls OR filetype:csv';
+        if (filters.domain) advancedQuery += ` site:${filters.domain}`;
+
+        let dateInstruction = "";
+        if (filters.dateRange === '24h') dateInstruction = "Priorize informações publicadas nas últimas 24 horas.";
+        if (filters.dateRange === 'week') dateInstruction = "Priorize informações da última semana.";
+        if (filters.dateRange === 'year') dateInstruction = "Limite a busca ao último ano.";
+
+        const systemInstruction = `Você é o "DeepSearch Intel", um motor de busca investigativo avançado do S.I.E. 3.0.
+        
+        MISSÃO: Varrer a web, cruzar fontes e fornecer um relatório forense sobre: "${query}".
+        ${dateInstruction}
+        
+        DIRETRIZES DE EXTRAÇÃO DE ENTIDADES (ESTRITO):
+        Ao preencher o array "entities", siga rigorosamente estas regras:
+        - **Person**: Nome completo de pessoas politicamente expostas ou envolvidas.
+        - **Company**: Nome da empresa. Se encontrar CNPJ, inclua no nome ou contexto.
+        - **Value**: Valores monetários EXATOS encontrados (Contratos, Salários, Desvios). Formato: "R$ X.XXX,XX".
+        - **Date**: Datas específicas de eventos (Assinatura, Decisão Judicial). Formato: "DD/MM/AAAA".
+        - **Location**: Locais específicos (Bairros, Obras, Órgãos).
+
+        DIRETRIZES DE MÍDIA (IMPORTANTE):
+        - Busque URLs de imagens REAIS (jpg, png, webp) relacionadas ao tema (ex: fotos de contratos, fotos das pessoas, locais).
+        - Se encontrar, preencha o array "media". Não invente URLs.
+        
+        DIRETRIZES DE RESPOSTA (FORMATO ESTRITO):
+        Após investigar, sua resposta DEVE conter um bloco JSON no final com a estrutura exata abaixo.
+        
+        \`\`\`json
+        {
+           "answer": "Texto detalhado em markdown citando fontes como [1], [2]...",
+           "entities": [
+              { "name": "Nome ou Valor", "type": "Person" | "Company" | "Value" | "Date" | "Location", "context": "Explicação breve..." }
+           ],
+           "media": [
+              { "type": "image", "url": "url_da_imagem", "source": "fonte", "description": "descrição" }
+           ],
+           "relatedProfiles": [],
+           "followUpQuestions": ["Pergunta sugerida 1?", "Pergunta sugerida 2?"]
+        }
+        \`\`\`
+        `;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Investigação Forense: ${advancedQuery}`,
+            config: {
+                systemInstruction,
+                tools: [{googleSearch: {}}],
+            }
+        });
+
+        const resultText = response.text;
+        const parsedResult = extractJson(resultText);
+        
+        // Process Sources
+        const sources: any[] = [];
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        
+        if (groundingChunks) {
+            groundingChunks.forEach((chunk: any) => {
+                if (chunk.web?.uri) {
+                    sources.push({
+                        title: chunk.web.title || 'Fonte Web',
+                        uri: chunk.web.uri,
+                        snippet: 'Fonte utilizada na investigação.'
+                    });
+                }
+            });
+        }
+        const uniqueSources = Array.from(new Set(sources.map(s => s.uri)))
+            .map(uri => sources.find(s => s.uri === uri));
+
+        if (parsedResult && parsedResult.answer) {
+            return {
+                answer: parsedResult.answer,
+                entities: parsedResult.entities || [],
+                media: parsedResult.media || [],
+                relatedProfiles: parsedResult.relatedProfiles || [],
+                followUpQuestions: parsedResult.followUpQuestions || [],
+                sources: uniqueSources
+            };
+        } else {
+            return {
+                answer: resultText || "Não foi possível estruturar a resposta, mas aqui está o texto bruto.",
+                entities: [],
+                media: [],
+                relatedProfiles: [],
+                followUpQuestions: [],
+                sources: uniqueSources
+            };
+        }
+    } catch (error) {
+        console.error("Deep Investigation Error:", error);
+        throw error;
+    }
 };
 
 // --- Geração de Fontes ---
@@ -316,19 +402,10 @@ export const findAndClassifyDataSources = async (sourceTypes: string): Promise<S
     try {
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
-        // IMPORTANTE: responseMimeType JSON removido devido ao uso de googleSearch.
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: `Encontre URLs de fontes de dados OFICIAIS e REAIS no Brasil para: ${sourceTypes}.
-            
-            IMPORTANTE: Sua resposta DEVE ser estritamente um ARRAY JSON válido, onde cada item segue este formato:
-            {
-                "name": "Nome oficial",
-                "url": "URL válida",
-                "category": "Categoria",
-                "type": "Tipo técnico"
-            }
-            Não inclua markdown, apenas o JSON puro.`,
+            IMPORTANTE: Sua resposta DEVE ser estritamente um ARRAY JSON válido.`,
             config: {
                 tools: [{googleSearch: {}}],
             },
@@ -342,34 +419,6 @@ export const findAndClassifyDataSources = async (sourceTypes: string): Promise<S
     }
 };
 
-export const findDataSourcesForMunicipality = async (municipality: string): Promise<Omit<SuggestedSource, 'category'>[]> => {
-    let currentUser = null;
-    try {
-         const { dbService } = await import('./dbService');
-         const users = await dbService.getUsers();
-         currentUser = users[0];
-    } catch(e) {}
-
-    try {
-        const apiKey = await getEffectiveApiKey(currentUser);
-        const ai = getAiClient(apiKey);
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `Encontre as 3 fontes de dados OFICIAIS (Transparência, Diário Oficial, Site da Prefeitura) para ${municipality}.
-            Retorne APENAS um ARRAY JSON válido com objetos: { "name": "...", "url": "...", "type": "..." }`,
-            config: {
-                tools: [{googleSearch: {}}],
-            },
-        });
-        
-        const result = extractJson(response.text);
-        return Array.isArray(result) ? result.slice(0, 3) : [];
-    } catch (error) {
-        console.error(`Error calling Gemini API for municipality sources:`, error);
-        return [];
-    } 
-};
-
 export const validateApiKey = async (apiKey: string): Promise<boolean> => {
     if (!apiKey || apiKey.trim() === '') return false;
     try {
@@ -381,9 +430,9 @@ export const validateApiKey = async (apiKey: string): Promise<boolean> => {
     }
 };
 
-// --- Geração de Dados Dinâmicos e Reais ---
+// --- Geração de Dados Dinâmicos e Reais (GRANULAR) ---
 
-export const generateFullDashboardData = async (municipality: string): Promise<DashboardData> => {
+const executeGranularQuery = async (municipality: string, task: string, outputSchema: string): Promise<{ data: any, sources: string[] }> => {
     let currentUser = null;
     try {
          const { dbService } = await import('./dbService');
@@ -395,29 +444,14 @@ export const generateFullDashboardData = async (municipality: string): Promise<D
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
         const moduleRules = await getModuleContextRules('dashboard');
-        // Schema simplificado para o prompt
-        const promptSchema = `
-        {
-            "municipality": "${municipality}",
-            "stats": { "facebook": 0, "instagram": 0, "twitter": 0, "judicialProcesses": 0 },
-            "mayor": { "name": "Nome Real", "position": "Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "url" },
-            "viceMayor": { "name": "Nome Real", "position": "Vice-Prefeito", ... },
-            "reputationRadar": { "score": 50, "tendency": "Estável", "summary": "..." },
-            "crisisThemes": [],
-            "sentimentDistribution": { "positive": 33, "negative": 33, "neutral": 34 },
-            "irregularitiesPanorama": [],
-            "highImpactNews": [],
-            "masterItems": [],
-            "dataSources": []
-        }`;
 
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Pesquise na web dados reais para o dashboard de inteligência de "${municipality}".
-            Encontre o Prefeito e Vice atuais.
+            contents: `Contexto: Análise estratégica de "${municipality}".
+            Tarefa: ${task}
             
             Sua resposta DEVE ser APENAS um JSON válido seguindo esta estrutura:
-            ${promptSchema}
+            ${outputSchema}
             
             ${moduleRules}`,
             config: {
@@ -425,47 +459,192 @@ export const generateFullDashboardData = async (municipality: string): Promise<D
             },
         });
 
-        const dashboardData = extractJson(response.text);
+        const data = extractJson(response.text);
         
-        if (!dashboardData) {
-            throw new Error("Falha ao parsear JSON do dashboard");
-        }
-
-        // Enrich sources
+        let sources: string[] = [];
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
         if (groundingChunks && groundingChunks.length > 0) {
-             const sources = (groundingChunks
+             sources = (groundingChunks
                 .map((chunk: any) => chunk.web?.uri) as any[])
                 .filter((uri): uri is string => typeof uri === 'string' && !!uri);
-            dashboardData.dataSources = [...new Set(sources)];
-        } else {
-            dashboardData.dataSources = [];
         }
-        
-        return dashboardData as DashboardData;
+
+        if (!data) throw new Error("Failed to parse JSON");
+        return { data, sources };
 
     } catch (error: any) {
-        console.error("Error generating dashboard data:", error);
-
-        // Check specifically for 429 Resource Exhausted or Quota Exceeded from Google API
-        if (
-            error.message?.includes('429') || 
-            error.status === 429 || 
-            error.message?.includes('Quota exceeded') || 
-            error.message?.includes('RESOURCE_EXHAUSTED')
-        ) {
-            console.warn("API Quota Exceeded. Returning Safe Mode data for Dashboard.");
-            return {
-                ...FALLBACK_DASHBOARD_DATA,
-                municipality: `${municipality} (Modo Offline)`,
-            };
-        }
-
-        throw new Error("Falha ao gerar dados do dashboard com a IA.");
+        console.warn(`Granular query failed for task: ${task}`, error);
+        throw error;
     }
 };
 
-// Generic generator for lists (Employees, Companies, etc.)
+// 1. Busca Prefeito e Vice
+const fetchPoliticalProfile = async (municipality: string) => {
+    const schema = `{
+        "mayor": { "name": "Nome Real", "position": "Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_DA_FOTO_OFICIAL" },
+        "viceMayor": { "name": "Nome Real", "position": "Vice-Prefeito", "party": "Partido", "mandate": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, "avatarUrl": "URL_DA_FOTO_OFICIAL" }
+    }`;
+    return executeGranularQuery(municipality, "Encontre o Prefeito e Vice atuais. IMPORTANTE: Busque a URL direta da FOTO oficial deles no site da prefeitura ou TSE. Se não encontrar foto oficial, deixe string vazia.", schema);
+};
+
+// 2. Busca Estatísticas Sociais
+const fetchSocialStats = async (municipality: string) => {
+    const schema = `{
+        "stats": { "facebook": 0, "instagram": 0, "twitter": 0, "judicialProcesses": 0 }
+    }`;
+    return executeGranularQuery(municipality, "Estime estatísticas numéricas aproximadas de engajamento social e processos judiciais.", schema);
+};
+
+// 3.a Busca Reputação (Texto/Radar)
+const fetchReputation = async (municipality: string) => {
+    const schema = `{
+        "reputationRadar": { "score": 50, "tendency": "Estável", "summary": "..." }
+    }`;
+    return executeGranularQuery(municipality, "Analise a reputação da gestão atual e gere um resumo e score de 0 a 100.", schema);
+};
+
+// 3.b Busca Sentimento (Numérico)
+const fetchSentiment = async (municipality: string) => {
+    const schema = `{
+        "sentimentDistribution": { "positive": 33, "negative": 33, "neutral": 34 }
+    }`;
+    return executeGranularQuery(municipality, "Estime a distribuição de sentimento (positivo/negativo/neutro) da população nas redes sociais.", schema);
+};
+
+// 4.a Busca Temas de Crise
+const fetchCrisisThemes = async (municipality: string) => {
+    const schema = `{
+        "crisisThemes": [{ "theme": "Tema", "occurrences": 0 }]
+    }`;
+    return executeGranularQuery(municipality, "Identifique os principais temas de crise e reclamações frequentes.", schema);
+};
+
+// 4.b Busca Irregularidades
+const fetchIrregularities = async (municipality: string) => {
+    const schema = `{
+        "irregularitiesPanorama": [{ "severity": "Alta", "description": "..." }]
+    }`;
+    return executeGranularQuery(municipality, "Busque por indícios de irregularidades ou apontamentos de tribunais de contas recentes.", schema);
+};
+
+// 5. Busca Notícias de Impacto (Widget)
+const fetchHighImpactNews = async (municipality: string) => {
+    const schema = `{
+        "highImpactNews": [{ "title": "...", "source": "...", "date": "YYYY-MM-DD", "impact": "Alto", "url": "..." }]
+    }`;
+    return executeGranularQuery(municipality, "Encontre 5 notícias recentes de ALTO IMPACTO político ou social (escândalos, obras, denúncias).", schema);
+};
+
+// 6. Busca Master Items (Tabela)
+const fetchMasterItems = async (municipality: string) => {
+    const schema = `{
+        "masterItems": [{ "date": "YYYY-MM-DD", "title": "...", "source": "...", "platform": "Notícia", "sentiment": "Neutro", "impact": "Médio", "url": "...", "reliability": "Alta" }]
+    }`;
+    return executeGranularQuery(municipality, "Gere uma lista diversificada de 10 a 12 itens recentes para a tabela mestra (Notícias, Diários Oficiais, Redes Sociais).", schema);
+};
+
+export const generateFullDashboardData = async (municipality: string): Promise<DashboardData> => {
+    console.log(`Starting granular dashboard generation for ${municipality} (8 parallel requests)...`);
+    
+    // Executa 8 requisições em paralelo para máxima granularidade
+    const results = await Promise.allSettled([
+        fetchPoliticalProfile(municipality), // 0: Prefeito/Vice
+        fetchSocialStats(municipality),      // 1: Stats
+        fetchReputation(municipality),       // 2: Reputação
+        fetchSentiment(municipality),        // 3: Sentimento
+        fetchCrisisThemes(municipality),     // 4: Crise
+        fetchIrregularities(municipality),   // 5: Irregularidades
+        fetchHighImpactNews(municipality),   // 6: Notícias
+        fetchMasterItems(municipality)       // 7: Tabela Mestra
+    ]);
+
+    const finalData: DashboardData = {
+        ...FALLBACK_DASHBOARD_DATA,
+        municipality,
+        dataSources: []
+    };
+
+    const allSources = new Set<string>();
+
+    // --- Processamento dos Resultados ---
+    
+    // 0. Political Profile
+    if (results[0].status === 'fulfilled') {
+        const { data, sources } = results[0].value;
+        if (data.mayor) finalData.mayor = data.mayor;
+        if (data.viceMayor) finalData.viceMayor = data.viceMayor;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 1. Stats
+    if (results[1].status === 'fulfilled') {
+        const { data, sources } = results[1].value;
+        if (data.stats) finalData.stats = data.stats;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 2. Reputation Radar
+    if (results[2].status === 'fulfilled') {
+        const { data, sources } = results[2].value;
+        if (data.reputationRadar) finalData.reputationRadar = data.reputationRadar;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 3. Sentiment Distribution
+    if (results[3].status === 'fulfilled') {
+        const { data, sources } = results[3].value;
+        if (data.sentimentDistribution) finalData.sentimentDistribution = data.sentimentDistribution;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 4. Crisis Themes
+    if (results[4].status === 'fulfilled') {
+        const { data, sources } = results[4].value;
+        if (Array.isArray(data.crisisThemes)) finalData.crisisThemes = data.crisisThemes;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 5. Irregularities
+    if (results[5].status === 'fulfilled') {
+        const { data, sources } = results[5].value;
+        if (Array.isArray(data.irregularitiesPanorama)) finalData.irregularitiesPanorama = data.irregularitiesPanorama;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 6. High Impact News
+    if (results[6].status === 'fulfilled') {
+        const { data, sources } = results[6].value;
+        if (Array.isArray(data.highImpactNews)) finalData.highImpactNews = data.highImpactNews;
+        sources.forEach(s => allSources.add(s));
+    }
+    
+    // 7. Master Items
+    if (results[7].status === 'fulfilled') {
+        const { data, sources } = results[7].value;
+        if (Array.isArray(data.masterItems)) finalData.masterItems = data.masterItems;
+        sources.forEach(s => allSources.add(s));
+    }
+
+    finalData.dataSources = Array.from(allSources);
+
+    const allFailed = results.every(r => r.status === 'rejected');
+    if (allFailed) {
+        console.warn("All granular dashboard requests failed. Returning full fallback.");
+        const firstError = (results[0] as PromiseRejectedResult).reason;
+        if (firstError?.message?.includes('429') || firstError?.message?.includes('Quota exceeded')) {
+             return {
+                ...FALLBACK_DASHBOARD_DATA,
+                municipality: `${municipality} (Offline - Cota)`,
+            };
+        }
+    }
+
+    return finalData;
+};
+
+// --- GERADORES DE LISTAS (EMPRESA, FUNCIONÁRIOS) ---
+
+// Generic generator for lists
 const generateListFromSearch = async <T>(municipality: string, promptContext: string, moduleName: string): Promise<T[]> => {
     let currentUser = null;
     try {
@@ -480,8 +659,8 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
         const moduleRules = await getModuleContextRules(moduleName);
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Pesquise dados reais para ${municipality}. ${promptContext}
-            Retorne APENAS um JSON Array válido. Sem markdown.
+            contents: `Pesquise dados reais e atuais para ${municipality}. ${promptContext}
+            Retorne APENAS um JSON Array válido. Sem markdown. Use ponto flutuante simples para valores monetários (ex: 1500.50) não string formatada.
             ${moduleRules}`,
             config: {
                 tools: [{googleSearch: {}}],
@@ -492,27 +671,18 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
         return Array.isArray(result) ? result as T[] : [];
     } catch (e: any) {
         console.error(`Error generating ${moduleName} data:`, e);
-        // Se for erro de cota, retorna lista vazia em vez de quebrar
-        if (
-            e.message?.includes('429') || 
-            e.status === 429 || 
-            e.message?.includes('RESOURCE_EXHAUSTED')
-        ) {
-             console.warn(`Quota exceeded for ${moduleName}, returning empty list.`);
-             return [];
-        }
         return [];
     }
 };
 
 export const generateRealEmployees = (municipality: string) => 
-    generateListFromSearch<Employee>(municipality, "Liste 5 secretários municipais ou cargos de confiança REAIS.", 'employees');
+    generateListFromSearch<Employee>(municipality, "Liste 10 secretários municipais, assessores ou cargos de confiança ATUAIS. Busque nomes em portais de transparência e diários oficiais. Retorne JSON Array: [{id: 1, name: '...', position: '...', department: '...', appointedBy: '...', startDate: 'YYYY-MM-DD', riskScore: 0, riskAnalysis: '...'}]", 'employees');
 
 export const generateRealCompanies = (municipality: string) => 
-    generateListFromSearch<Company>(municipality, "Liste 5 empresas que possuem contratos ou licitações com a prefeitura.", 'companies');
+    generateListFromSearch<Company>(municipality, "Liste 5 empresas que venceram licitações recentes na prefeitura. Retorne JSON Array: [{id: 1, name:'...', cnpj: '...', totalContractsValue: 100000 (number), riskScore: 0}]", 'companies');
 
 export const generateRealContracts = (municipality: string) => 
-    generateListFromSearch<Contract>(municipality, "Liste 5 contratos ou licitações recentes da prefeitura.", 'contracts');
+    generateListFromSearch<Contract>(municipality, "Liste 5 contratos recentes da prefeitura. Retorne JSON Array: [{id: '...', companyName: '...', value: 1000 (number), object: '...', startDate: '...', endDate: '...'}]", 'contracts');
 
 export const generateRealLawsuits = (municipality: string) => 
     generateListFromSearch<Lawsuit>(municipality, "Pesquise processos judiciais públicos envolvendo a prefeitura ou gestores.", 'judicial');
@@ -521,7 +691,60 @@ export const generateRealSocialPosts = (municipality: string) =>
     generateListFromSearch<SocialPost>(municipality, "Encontre opiniões/comentários recentes em redes sociais/notícias sobre a gestão.", 'social');
 
 export const generateRealTimeline = (municipality: string) => 
-    generateListFromSearch<TimelineEvent>(municipality, "Crie uma linha do tempo com 5 eventos políticos/administrativos importantes dos últimos 2 anos.", 'timeline');
+    generateListFromSearch<TimelineEvent>(municipality, "Crie uma linha do tempo com 5 eventos políticos/administrativos importantes dos últimos 2 anos. Use o campo 'relatedId' se puder associar a um ID de contrato ou processo.", 'timeline');
+
+// --- Liderança Política e Rede ---
+export const generatePoliticalLeadership = async (municipality: string): Promise<Politician[]> => {
+    let currentUser = null;
+    try {
+         const { dbService } = await import('./dbService');
+         const users = await dbService.getUsers();
+         currentUser = users[0];
+    } catch(e) {}
+
+    try {
+        const apiKey = await getEffectiveApiKey(currentUser);
+        const ai = getAiClient(apiKey);
+        const moduleRules = await getModuleContextRules('political');
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Pesquise o Prefeito e o Vice-Prefeito ATUAIS de ${municipality}.
+            
+            TAREFA CRÍTICA DE IMAGEM:
+            Busque ativamente no Google Imagens, sites oficiais da Prefeitura, Câmaras ou TSE pela URL DIRETA (.jpg, .png) da foto oficial ou de urna dessas pessoas.
+            Não use placeholders. Se não achar, deixe vazio.
+            
+            Retorne APENAS um ARRAY JSON válido contendo 2 objetos seguindo esta estrutura:
+            {
+                "id": "slug-nome-cargo",
+                "name": "Nome Completo",
+                "party": "Partido",
+                "position": "Prefeito" ou "Vice-Prefeito",
+                "state": "Sigla do Estado",
+                "imageUrl": "URL_REAL_DA_FOTO",
+                "bio": "Biografia",
+                "risks": { "judicial": "Baixo", "financial": "Baixo", "media": "Baixo" },
+                "reputation": [],
+                "connections": [],
+                "electoralHistory": [],
+                "partyHistory": [],
+                "donations": { "received": [] },
+                "assets": { "growthPercentage": 0, "declarations": [] },
+                "electoralMap": { "imageUrl": "", "description": "" }
+            }
+            ${moduleRules}`,
+            config: {
+                tools: [{googleSearch: {}}],
+            },
+        });
+
+        const result = extractJson(response.text);
+        return Array.isArray(result) ? result as Politician[] : [];
+    } catch (e: any) {
+        console.error("Error generating leadership:", e);
+        return [];
+    }
+};
 
 export const generatePoliticalSquad = async (municipality: string): Promise<Politician[]> => {
     let currentUser = null;
@@ -537,27 +760,12 @@ export const generatePoliticalSquad = async (municipality: string): Promise<Poli
         const moduleRules = await getModuleContextRules('political');
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Pesquise e liste os principais políticos ATUAIS de ${municipality} (Prefeito, Vice, principais vereadores/secretários).
+            contents: `Faça uma varredura política em ${municipality}. Identifique Vereadores influentes e Secretários.
             
-            Retorne um ARRAY JSON válido de objetos seguindo esta estrutura mínima para cada político:
-            {
-                "id": "slug-unico-nome",
-                "name": "Nome Completo",
-                "party": "Partido",
-                "position": "Cargo (Prefeito, Vereador, etc)",
-                "state": "Sigla do Estado",
-                "imageUrl": "URL da foto oficial se encontrar",
-                "bio": "Breve biografia (1 parágrafo)",
-                "risks": { "judicial": "Baixo", "financial": "Baixo", "media": "Baixo" },
-                "reputation": [],
-                "connections": [],
-                "electoralHistory": [],
-                "partyHistory": [],
-                "donations": { "received": [] },
-                "assets": { "growthPercentage": 0, "declarations": [] },
-                "electoralMap": { "imageUrl": "", "description": "" }
-            }
+            TAREFA CRÍTICA DE IMAGEM:
+            Para cada político, tente encontrar uma URL de foto real (perfil oficial, TSE).
             
+            Retorne um ARRAY JSON válido com perfis.
             ${moduleRules}`,
             config: {
                 tools: [{googleSearch: {}}],
@@ -568,15 +776,11 @@ export const generatePoliticalSquad = async (municipality: string): Promise<Poli
         return Array.isArray(result) ? result as Politician[] : [];
     } catch (e: any) {
         console.error("Error generating political squad:", e);
-         if (e.message?.includes('429') || e.status === 429 || e.message?.includes('RESOURCE_EXHAUSTED')) {
-             console.warn("Quota exceeded for Political Squad.");
-             return [];
-         }
         return [];
     }
 };
 
-// Deep Analysis for Politician Page
+// --- Deep Analysis for Politician Page (INVESTIGAÇÃO COMPLETA) ---
 export const generateDeepPoliticianAnalysis = async (partialPolitician: Politician): Promise<Politician> => {
     let currentUser = null;
     try {
@@ -588,12 +792,27 @@ export const generateDeepPoliticianAnalysis = async (partialPolitician: Politici
     try {
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
+        
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Realize uma investigação profunda na web sobre o político: ${partialPolitician.name} (${partialPolitician.position} - ${partialPolitician.party}).
+            contents: `Atue como um Auditor Forense Digital do sistema S.I.E.
+            Realize uma INVESTIGAÇÃO MINUCIOSA, PROFUNDA E COMPLETA sobre: ${partialPolitician.name} (${partialPolitician.position} - ${partialPolitician.party}).
             
-            Complete o objeto JSON abaixo com dados REAIS encontrados (Histórico Eleitoral, Bens, Doadores, Conexões):
-            ${JSON.stringify(partialPolitician)}
+            OBJETIVOS DA INVESTIGAÇÃO:
+            1. **FOTO REAL**: Encontre a URL direta da foto de urna no DivulgaCand ou perfil oficial. Priorize imagens de alta qualidade. Atualize o campo 'imageUrl'.
+            2. **Evolução Patrimonial**: Busque declarações de bens no TSE de eleições passadas e atuais. Calcule o crescimento real. Preencha 'assets.declarations' com {year, value}.
+            3. **Doações de Campanha**: Identifique os maiores doadores (Empresas ou Pessoas). Busque CNPJs e valores exatos. Preencha 'donations.received'.
+            4. **Rede de Conexões e Nepotismo**: Identifique parentes nomeados, sócios em empresas ou aliados políticos com processos. Preencha 'connections' com detalhes 'details' explicando o vínculo.
+            5. **Histórico Completo**: Liste todas as eleições disputadas, resultados e votos. Preencha 'electoralHistory'.
+            6. **Salário e Redes**: Encontre o salário bruto atual no Portal da Transparência e links de redes sociais.
+            7. **Escândalos e Processos**: Busque notícias de irregularidades, improbidade ou investigações. Atualize os níveis de risco ('risks').
+
+            ATENÇÃO AOS DADOS:
+            - Valores monetários devem ser NUMBER (ex: 150000.00).
+            - Datas devem ser precisas.
+            
+            Complete o objeto JSON abaixo com os dados encontrados. Mantenha a estrutura, mas enriqueça o conteúdo.
+            Objeto Base: ${JSON.stringify(partialPolitician)}
             
             Retorne APENAS o JSON completo e atualizado.`,
             config: {
@@ -609,10 +828,6 @@ export const generateDeepPoliticianAnalysis = async (partialPolitician: Politici
         return partialPolitician;
     } catch (e: any) {
         console.error("Deep analysis failed", e);
-         if (e.message?.includes('429') || e.status === 429 || e.message?.includes('RESOURCE_EXHAUSTED')) {
-             // Return original data without modification if quota exceeded
-             return partialPolitician;
-         }
         return partialPolitician;
     }
 };

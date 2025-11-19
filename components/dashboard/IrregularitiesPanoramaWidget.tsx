@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { Irregularity } from '../../types';
 import Card from './Card';
@@ -24,7 +23,10 @@ const getSeverityIcon = (severity: Irregularity['severity']) => {
 
 const IrregularitiesPanoramaWidget: React.FC<IrregularitiesPanoramaWidgetProps> = ({ data, isLoading }) => {
     return (
-        <Card title="Panorama de Irregularidades">
+        <Card 
+            title="Panorama de Irregularidades"
+            infoTooltip="Gravidade baseada no impacto jurídico e financeiro. Alta: Indícios de improbidade ou ilegalidade. Média: Falhas administrativas ou gestão questionável. Baixa: Erros formais menores."
+        >
             {isLoading || !data ? (
                  <div className="h-64 flex items-center justify-center">
                     <Spinner />
