@@ -293,11 +293,15 @@ export interface ApiKey {
 }
 
 export interface DbConfig {
-  host: string;
-  port: string;
-  user: string;
+  apiUrl: string;
+  apiToken: string;
+  status: 'Conectado' | 'Desconectado' | 'Sincronizando' | 'Erro';
+  lastSync?: string;
+  // Campos legados mantidos como opcionais para compatibilidade reversa durante migração
+  host?: string;
+  port?: string;
+  user?: string;
   password?: string;
-  status: 'Conectado' | 'Desconectado';
 }
 
 export interface DataSource {

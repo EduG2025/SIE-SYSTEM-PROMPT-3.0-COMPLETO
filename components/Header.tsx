@@ -1,8 +1,9 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import type { Module } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { dbService } from '../services/dbService';
 
 interface HeaderProps {
     modules: Module[];
@@ -26,11 +27,43 @@ const Header: React.FC<HeaderProps> = ({ modules }) => {
       title = 'Minhas Configurações';
   }
 
+  // Sync Status Monitoring
+  const [syncStatus, setSyncStatus] = useState<'Conectado' | 'Desconectado' | 'Sincronizando' | 'Erro'>('Desconectado');
+
+  useEffect(() => {
+      const checkSync = async () => {
+          const config = await dbService.getDbConfig();
+          setSyncStatus(config.status);
+      };
+      
+      checkSync();
+      const interval = setInterval(checkSync, 2000); // Poll status
+      return () => clearInterval(interval);
+  }, []);
+
+  const getSyncIcon = () => {
+      switch(syncStatus) {
+          case 'Conectado':
+              return <span className="text-brand-green" title="Sincronizado com a Nuvem">☁️</span>;
+          case 'Sincronizando':
+              return <span className="text-brand-yellow animate-pulse" title="Enviando dados...">🔄</span>;
+          case 'Erro':
+              return <span className="text-brand-red" title="Erro de Sincronização">❌</span>;
+          default:
+              return <span className="text-brand-light opacity-30" title="Modo Local (Offline)">☁️</span>;
+      }
+  };
 
   return (
     <header className="bg-brand-secondary shadow-md flex justify-between items-center gap-4 px-4 md:px-6 py-3 shrink-0">
       <h2 className="text-xl md:text-2xl font-bold text-white truncate">{title}</h2>
       <div className="flex items-center gap-2 md:gap-4">
+        
+        {/* Indicador de Sync */}
+        <div className="hidden md:flex items-center mr-2 bg-brand-primary/50 px-2 py-1 rounded-full border border-brand-accent/30">
+             {getSyncIcon()}
+        </div>
+
         <div className="relative">
           <input
             type="text"

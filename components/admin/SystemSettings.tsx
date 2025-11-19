@@ -1,8 +1,8 @@
 
-
 import React, { useState, useEffect } from 'react';
 import type { ApiKey, DbConfig, User } from '../../types';
 import { dbService } from '../../services/dbService';
+import { validateApiKey } from '../../services/geminiService'; // Import validation service
 import Modal from '../common/Modal';
 import ToggleSwitch from '../common/ToggleSwitch';
 import ApiKeyFormModal from './system/ApiKeyFormModal';
@@ -22,24 +22,35 @@ const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => v
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-                <label className="text-sm text-brand-light mb-1 block">Host</label>
-                <input type="text" name="host" value={formData.host} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent"/>
+                <label className="text-sm text-brand-light mb-1 block">URL da API (VPS/Servidor)</label>
+                <input 
+                    type="text" 
+                    name="apiUrl" 
+                    value={formData.apiUrl || ''} 
+                    onChange={handleChange} 
+                    placeholder="Ex: https://api.seusistema.com ou http://IP:3000"
+                    className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
+                    required
+                />
+                <p className="text-xs text-brand-light mt-1">Endereço onde o serviço de sincronização Node.js está rodando.</p>
             </div>
             <div>
-                <label className="text-sm text-brand-light mb-1 block">Port</label>
-                <input type="text" name="port" value={formData.port} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent"/>
+                <label className="text-sm text-brand-light mb-1 block">Token de Autenticação (Secret)</label>
+                <input 
+                    type="password" 
+                    name="apiToken" 
+                    value={formData.apiToken || ''} 
+                    onChange={handleChange} 
+                    placeholder="Senha definida no servidor"
+                    className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
+                    required
+                />
+                 <p className="text-xs text-brand-light mt-1">Chave de segurança para permitir escrita no banco.</p>
             </div>
-            <div>
-                <label className="text-sm text-brand-light mb-1 block">User</label>
-                <input type="text" name="user" value={formData.user} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent"/>
-            </div>
-            <div>
-                <label className="text-sm text-brand-light mb-1 block">Password</label>
-                <input type="password" name="password" value={formData.password || ''} onChange={handleChange} placeholder="Deixe em branco para não alterar" className="w-full bg-brand-primary p-2 rounded border border-brand-accent"/>
-            </div>
+            
              <div className="flex justify-end gap-4 mt-6">
                 <button type="button" onClick={onCancel} className="bg-brand-accent text-white px-4 py-2 rounded-lg">Cancelar</button>
-                <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-lg">Salvar</button>
+                <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-lg">Salvar e Conectar</button>
             </div>
         </form>
     );
@@ -56,6 +67,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
     const [isDbModalOpen, setIsDbModalOpen] = useState(false);
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState('');
+    const [isValidatingPool, setIsValidatingPool] = useState(false);
 
     const fetchData = async () => {
         dbService.getSystemPrompt().then(setSystemPrompt);
@@ -65,8 +77,11 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
 
     useEffect(() => {
         fetchData();
-        // Atualiza estatísticas de uso a cada 10 segundos
-        const interval = setInterval(() => dbService.getApiKeys().then(setApiKeys), 10000);
+        // Atualiza estatísticas de uso a cada 10 segundos e status da conexão
+        const interval = setInterval(() => {
+             dbService.getApiKeys().then(setApiKeys);
+             dbService.getDbConfig().then(setDbConfig);
+        }, 5000);
         return () => clearInterval(interval);
     }, []);
     
@@ -102,13 +117,48 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         await fetchData();
         showToast('Status da chave de API atualizado!', 'success');
     };
+
+    const handleValidatePool = async () => {
+        setIsValidatingPool(true);
+        showToast('Iniciando validação do pool de chaves...', 'success');
+        
+        let activeCount = 0;
+        let invalidCount = 0;
+
+        for (const key of apiKeys) {
+            // Pula validação de chaves já inativas manualmente, a menos que queira revalidar tudo
+            // Aqui validamos tudo para garantir saúde
+            const isValid = await validateApiKey(key.key);
+            const newStatus = isValid ? 'Ativa' : 'Inativa';
+            
+            if (key.status !== newStatus) {
+                await dbService.setApiKeyStatus(key.id, newStatus);
+            }
+            
+            if (isValid) activeCount++;
+            else invalidCount++;
+        }
+
+        await fetchData();
+        setIsValidatingPool(false);
+        
+        if (invalidCount > 0) {
+            showToast(`Validação concluída: ${activeCount} ativas, ${invalidCount} desativadas por erro.`, 'error');
+        } else {
+            showToast(`Validação concluída: Todas as ${activeCount} chaves estão saudáveis.`, 'success');
+        }
+    };
+
+    const handleGenerateNewKey = () => {
+        window.open('https://aistudio.google.com/app/apikey', '_blank');
+    };
     
     const handleSaveDbConfig = async (config: DbConfig) => {
         await dbService.saveDbConfig(config, currentUser.username);
         const updatedConfig = await dbService.getDbConfig();
         setDbConfig(updatedConfig);
         setIsDbModalOpen(false);
-        showToast('Configuração do banco de dados salva com sucesso!', 'success');
+        showToast('Configuração de sincronização salva! Tentando conectar...', 'success');
     };
 
     const handleSavePrompt = async () => {
@@ -123,7 +173,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
     return (
         <div className="space-y-8">
              {isDbModalOpen && (
-                <Modal title="Editar Conexão com Banco de Dados" onClose={() => setIsDbModalOpen(false)}>
+                <Modal title="Configurar Sincronização (API)" onClose={() => setIsDbModalOpen(false)}>
                     <DbConfigForm config={dbConfig} onSave={handleSaveDbConfig} onCancel={() => setIsDbModalOpen(false)} />
                 </Modal>
              )}
@@ -142,10 +192,36 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                             <h4 className="font-bold text-lg">Pool de Chaves Gemini (Load Balancing)</h4>
                             <span className="bg-brand-blue text-xs font-bold px-2 py-1 rounded text-white">Multitarefa Ativo</span>
                         </div>
-                        <p className="text-xs text-brand-light mb-3">O sistema rotaciona automaticamente as chaves ativas para distribuir a carga de requisições.</p>
+                        <p className="text-xs text-brand-light mb-3">O sistema rotaciona automaticamente as chaves ativas para distribuir a carga.</p>
+                        
+                        {/* Auto-Generation / Validation Toolbar */}
+                        <div className="flex gap-2 mb-3">
+                            <button 
+                                onClick={handleGenerateNewKey}
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1.5 px-2 rounded transition-colors flex items-center justify-center"
+                                title="Abrir Google AI Studio para criar chave"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                Gerar Chave
+                            </button>
+                            <button 
+                                onClick={handleValidatePool}
+                                disabled={isValidatingPool}
+                                className="flex-1 bg-brand-accent hover:bg-brand-light text-white text-xs font-bold py-1.5 px-2 rounded transition-colors flex items-center justify-center disabled:opacity-50"
+                                title="Verificar quais chaves estão funcionando"
+                            >
+                                {isValidatingPool ? (
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                )}
+                                Validar Pool
+                            </button>
+                        </div>
+
                         <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
                             {apiKeys.map(key => (
-                                <div key={key.id} className="text-sm p-3 bg-brand-primary rounded flex flex-col gap-2">
+                                <div key={key.id} className={`text-sm p-3 bg-brand-primary rounded flex flex-col gap-2 border-l-4 ${key.status === 'Ativa' ? 'border-brand-green' : 'border-brand-red'}`}>
                                     <div className="flex justify-between items-center">
                                         <span className="font-mono text-brand-light font-bold">...{key.key.slice(-8)}</span>
                                         <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded border ${key.type === 'System' ? 'border-brand-blue text-brand-blue' : 'border-brand-light text-brand-light'}`}>
@@ -177,16 +253,26 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                         </button>
                     </div>
                     <div>
-                        <h4 className="font-bold text-lg mb-4">Conexão com Banco de Dados</h4>
-                        <div className="space-y-2 text-sm bg-brand-primary p-4 rounded">
-                            <p><strong>Host:</strong> {dbConfig.host}</p>
-                            <p><strong>Port:</strong> {dbConfig.port}</p>
-                            <p><strong>User:</strong> {dbConfig.user}</p>
-                            <p><strong>Password:</strong> ********</p>
-                            <p><strong>Status:</strong> <span className={dbConfig.status === 'Conectado' ? 'text-green-400' : 'text-red-400' }>{dbConfig.status}</span></p>
+                        <h4 className="font-bold text-lg mb-4">Sincronização com Servidor (MySQL/API)</h4>
+                        <div className="space-y-3 text-sm bg-brand-primary p-4 rounded border border-brand-accent/30">
+                            <div className="flex justify-between items-center">
+                                <strong>Status:</strong>
+                                <span className={`font-bold px-2 py-1 rounded text-xs ${dbConfig.status === 'Conectado' ? 'bg-green-500/20 text-green-400' : dbConfig.status === 'Erro' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400' }`}>
+                                    {dbConfig.status || 'Não Configurado'}
+                                </span>
+                            </div>
+                            <p className="truncate" title={dbConfig.apiUrl}>
+                                <strong>Endpoint:</strong> {dbConfig.apiUrl || '---'}
+                            </p>
+                            <p>
+                                <strong>Último Sync:</strong> {dbConfig.lastSync ? new Date(dbConfig.lastSync).toLocaleString('pt-BR') : 'Nunca'}
+                            </p>
+                            <p className="text-xs text-brand-light italic mt-2">
+                                O sistema sincroniza automaticamente as alterações locais com o servidor configurado.
+                            </p>
                         </div>
                         <button onClick={() => setIsDbModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg transition-colors w-full">
-                            Editar Conexão DB
+                            Configurar Conexão API
                         </button>
                     </div>
                 </div>
