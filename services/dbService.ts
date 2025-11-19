@@ -105,6 +105,25 @@ class DbService {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
         }
     }
+    
+    // Helper para determinar URL da API
+    private getApiUrl(): string {
+        // Se o usuário configurou uma URL manual, usa ela
+        if (this.data?.dbConfig?.apiUrl && this.data.dbConfig.apiUrl.trim() !== '') {
+            return this.data.dbConfig.apiUrl;
+        }
+        // Caso contrário, assume que está rodando no mesmo domínio via proxy nginx
+        // Detecta se está em localhost (dev) ou produção
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        return isLocalhost ? 'http://localhost:3000' : '/api';
+    }
+
+    private getApiHeaders(): HeadersInit {
+        return {
+            'Content-Type': 'application/json',
+            'x-sync-token': this.data?.dbConfig?.apiToken || ''
+        };
+    }
 
     async resetDatabase() {
         this.data = {
@@ -144,6 +163,7 @@ class DbService {
             this.logActivity('INFO', `Novo usuário criado: ${user.username}`, adminUsername);
         }
         await this.saveToStorage();
+        this.syncData(); // Tenta sincronizar com API
     }
 
     async deleteUser(id: number, adminUsername: string): Promise<boolean> {
@@ -153,6 +173,7 @@ class DbService {
         if (this.data!.users.length < initialLen) {
             this.logActivity('WARN', `Usuário deletado ID: ${id}`, adminUsername);
             await this.saveToStorage();
+            this.syncData();
             return true;
         }
         return false;
@@ -164,6 +185,7 @@ class DbService {
          if (!user) throw new Error("User not found");
          Object.assign(user, updates);
          await this.saveToStorage();
+         this.syncData();
          return user;
     }
     
@@ -174,6 +196,7 @@ class DbService {
             user.apiKey = key;
             user.canUseOwnApiKey = true; // Implicitly allowed if they can save it via UI
             await this.saveToStorage();
+            this.syncData();
         }
     }
 
@@ -183,6 +206,7 @@ class DbService {
         if (user) {
             user.apiKey = undefined;
             await this.saveToStorage();
+            this.syncData();
         }
     }
 
@@ -230,6 +254,7 @@ class DbService {
             }
             user.usage++;
             await this.saveToStorage();
+            // Não sincroniza a cada incremento de cota para economizar banda, apenas em ações maiores
         }
         return { allowed: true, usage: user.usage, limit };
     }
@@ -250,11 +275,13 @@ class DbService {
         if (idx >= 0) this.data!.plans[idx] = plan;
         else this.data!.plans.push(plan);
         await this.saveToStorage();
+        this.syncData();
     }
     async deletePlan(id: string) {
         await this.ensureReady();
         this.data!.plans = this.data!.plans.filter(p => p.id !== id);
         await this.saveToStorage();
+        this.syncData();
     }
 
     // --- API Keys ---
@@ -270,12 +297,14 @@ class DbService {
         });
         this.logActivity('INFO', `Nova chave de API adicionada`, username);
         await this.saveToStorage();
+        this.syncData();
     }
     async removeApiKey(id: number, username: string) {
         await this.ensureReady();
         this.data!.apiKeys = this.data!.apiKeys.filter(k => k.id !== id);
         this.logActivity('WARN', `Chave de API removida: ${id}`, username);
         await this.saveToStorage();
+        this.syncData();
     }
     async toggleApiKeyStatus(id: number, username: string) {
         await this.ensureReady();
@@ -284,6 +313,7 @@ class DbService {
             key.status = key.status === 'Ativa' ? 'Inativa' : 'Ativa';
             this.logActivity('INFO', `Status da chave API ${id} alterado para ${key.status}`, username);
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async setApiKeyStatus(id: number, status: 'Ativa' | 'Inativa') {
@@ -292,6 +322,7 @@ class DbService {
         if (key) {
             key.status = status;
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async getNextSystemApiKey(): Promise<string> {
@@ -319,6 +350,7 @@ class DbService {
         if (mod) {
             mod.active = active;
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async saveModuleConfig(id: string, updates: Partial<Module>) {
@@ -327,6 +359,7 @@ class DbService {
         if (mod) {
             Object.assign(mod, updates);
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async saveModuleRules(view: string, rules: string) {
@@ -335,17 +368,20 @@ class DbService {
         if (mod) {
             mod.rules = rules;
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async deleteModule(id: string) {
         await this.ensureReady();
         this.data!.modules = this.data!.modules.filter(m => m.id !== id);
         await this.saveToStorage();
+        this.syncData();
     }
     async addModule(module: Module) {
         await this.ensureReady();
         this.data!.modules.push(module);
         await this.saveToStorage();
+        this.syncData();
     }
 
     // --- Data Sources ---
@@ -356,6 +392,7 @@ class DbService {
         if (cat) {
             cat.sources.push({ ...source, id: Date.now() });
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async updateDataSource(id: number, updates: any) {
@@ -365,6 +402,7 @@ class DbService {
             if (src) {
                 Object.assign(src, updates);
                 await this.saveToStorage();
+                this.syncData();
                 return;
             }
         }
@@ -375,6 +413,7 @@ class DbService {
             cat.sources = cat.sources.filter(s => s.id !== id);
         }
         await this.saveToStorage();
+        this.syncData();
     }
     async toggleDataSourceStatus(id: number) {
         await this.ensureReady();
@@ -384,6 +423,7 @@ class DbService {
                 src.active = !src.active;
                 src.status = src.active ? 'Ativa' : 'Inativa';
                 await this.saveToStorage();
+                this.syncData();
                 return;
             }
         }
@@ -392,6 +432,7 @@ class DbService {
         await this.ensureReady();
         this.data!.dataSources.push({ id: Date.now(), name, sources: [] });
         await this.saveToStorage();
+        this.syncData();
     }
     async renameDataSourceCategory(id: number, name: string) {
         await this.ensureReady();
@@ -399,12 +440,14 @@ class DbService {
         if (cat) {
             cat.name = name;
             await this.saveToStorage();
+            this.syncData();
         }
     }
     async deleteDataSourceCategory(id: number) {
         await this.ensureReady();
         this.data!.dataSources = this.data!.dataSources.filter(c => c.id !== id);
         await this.saveToStorage();
+        this.syncData();
     }
     async addSourceToCategoryByName(suggested: SuggestedSource) {
         await this.ensureReady();
@@ -423,6 +466,7 @@ class DbService {
             status: 'Ativa'
         });
         await this.saveToStorage();
+        this.syncData();
     }
     async validateAllDataSources() {
         // Simulate validation
@@ -438,6 +482,7 @@ class DbService {
             }
         }
         await this.saveToStorage();
+        this.syncData();
     }
     
     // --- Automation ---
@@ -446,6 +491,7 @@ class DbService {
         await this.ensureReady();
         this.data!.aiAutomationSettings = settings;
         await this.saveToStorage();
+        this.syncData();
     }
     async runAiAutomationTask() {
         await this.ensureReady();
@@ -453,6 +499,7 @@ class DbService {
         this.data!.aiAutomationSettings.lastRun = new Date().toISOString();
         this.data!.aiAutomationSettings.lastRunResult = 'Executado com sucesso. 0 novas fontes.';
         await this.saveToStorage();
+        this.syncData();
     }
 
     // --- Dashboard ---
@@ -461,6 +508,7 @@ class DbService {
         await this.ensureReady();
         this.data!.dashboardWidgets = widgets;
         await this.saveToStorage();
+        this.syncData();
     }
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
@@ -474,6 +522,7 @@ class DbService {
         const newData = await generateFullDashboardData(municipality);
         this.data!.dashboardData[municipality] = newData;
         await this.saveToStorage();
+        this.syncData();
         return newData;
     }
 
@@ -485,6 +534,7 @@ class DbService {
              const newEmployees = await generateRealEmployees(municipality);
              this.data!.employees = newEmployees;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.employees;
     }
@@ -496,6 +546,7 @@ class DbService {
              const newCos = await generateRealCompanies(municipality);
              this.data!.companies = newCos;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.companies;
     }
@@ -507,6 +558,7 @@ class DbService {
              const newConts = await generateRealContracts(municipality);
              this.data!.contracts = newConts;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.contracts;
     }
@@ -518,6 +570,7 @@ class DbService {
              const newLaws = await generateRealLawsuits(municipality);
              this.data!.lawsuits = newLaws;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.lawsuits;
     }
@@ -529,6 +582,7 @@ class DbService {
              const newPosts = await generateRealSocialPosts(municipality);
              this.data!.socialPosts = newPosts;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.socialPosts;
     }
@@ -540,6 +594,7 @@ class DbService {
              const newTimeline = await generateRealTimeline(municipality);
              this.data!.timelineEvents = newTimeline;
              await this.saveToStorage();
+             this.syncData();
         }
         return this.data!.timelineEvents;
     }
@@ -561,6 +616,7 @@ class DbService {
              const updated = await generateDeepPoliticianAnalysis(p);
              Object.assign(p, updated);
              await this.saveToStorage();
+             this.syncData();
              return { data: p, timestamp: Date.now(), source: 'api' };
         }
         throw new Error("Politician not found");
@@ -572,6 +628,7 @@ class DbService {
              const leaders = await generatePoliticalLeadership(municipality);
              this.data!.politicians = leaders;
              await this.saveToStorage();
+             this.syncData();
              return leaders;
         }
         return this.data!.politicians;
@@ -587,6 +644,7 @@ class DbService {
             }
         }
         await this.saveToStorage();
+        this.syncData();
     }
 
     async togglePoliticianMonitoring(id: string) {
@@ -595,16 +653,24 @@ class DbService {
         if (p) {
             p.monitored = !p.monitored;
             await this.saveToStorage();
+            this.syncData();
         }
     }
     
     // --- System ---
-    async getDbConfig(): Promise<DbConfig> { await this.ensureReady(); return this.data!.dbConfig; }
+    async getDbConfig(): Promise<DbConfig> { 
+        await this.ensureReady(); 
+        // Force status update based on recent checks logic (simplified here)
+        return this.data!.dbConfig; 
+    }
+    
     async saveDbConfig(config: DbConfig, username: string) {
         await this.ensureReady();
         this.data!.dbConfig = config;
         this.logActivity('AUDIT', `Configuração de DB alterada`, username);
         await this.saveToStorage();
+        // Immediately try to connect
+        this.syncData();
     }
 
     async getSystemPrompt(): Promise<string> { await this.ensureReady(); return this.data!.systemPrompt; }
@@ -613,6 +679,7 @@ class DbService {
         this.data!.systemPrompt = prompt;
         this.logActivity('AUDIT', `System prompt atualizado`, username);
         await this.saveToStorage();
+        this.syncData();
     }
 
     async getCompactDatabaseSnapshot(): Promise<string> {
@@ -626,12 +693,9 @@ class DbService {
     }
 
     logActivity(level: LogEntry['level'], message: string, user: string) {
-        // Assuming data might not be ready if called synchronously in constructor or similar (rare)
-        // But logActivity is mostly called after init.
         if (this.data) {
             this.data.logs.unshift({ id: Date.now(), timestamp: new Date().toISOString(), level, message, user });
             if (this.data.logs.length > 100) this.data.logs.pop();
-            // Fire and forget save, usually
             localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
         }
     }
@@ -688,11 +752,80 @@ class DbService {
     }
 
     async checkForRemoteUpdates() {
+        // Real check logic would go here against GitHub API or similar
+        // For now, return a safe default
          return { updated: false, message: "Sistema atualizado (Versão Local)." };
     }
 
-    async executeServerCommand(cmd: string) {
-        return { success: true, output: `Comando '${cmd}' simulado com sucesso no ambiente local.` };
+    // --- API Sync & Remote Commands ---
+
+    // Sincronização de Dados (Push)
+    private async syncData() {
+        // If no token or URL, skip
+        if (!this.data?.dbConfig?.apiToken) return;
+
+        const apiUrl = this.getApiUrl();
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            this.data.dbConfig.status = 'Sincronizando';
+            
+            // We send the full data blob. In a real app, use diffs.
+            const response = await fetch(`${apiUrl}/api/data`, {
+                method: 'POST',
+                headers: this.getApiHeaders(),
+                body: JSON.stringify(this.data),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                this.data.dbConfig.status = 'Conectado';
+                this.data.dbConfig.lastSync = new Date().toISOString();
+            } else {
+                this.data.dbConfig.status = 'Erro';
+                console.warn('Sync failed:', await response.text());
+            }
+        } catch (e) {
+            this.data.dbConfig.status = 'Erro';
+            console.warn('Sync network error:', e);
+        }
+        await this.saveToStorage();
+    }
+
+    // Comando Remoto (Execução no Servidor)
+    async executeServerCommand(cmd: string): Promise<{ success: boolean, output: string }> {
+        await this.ensureReady();
+        const apiUrl = this.getApiUrl();
+        const token = this.data?.dbConfig?.apiToken;
+
+        if (!token) return { success: false, output: "Token de API não configurado." };
+
+        try {
+            const response = await fetch(`${apiUrl}/api/execute`, {
+                method: 'POST',
+                headers: this.getApiHeaders(),
+                body: JSON.stringify({ command: cmd })
+            });
+            return await response.json();
+        } catch (e) {
+             return { success: false, output: `Erro de conexão: ${(e as Error).message}` };
+        }
+    }
+    
+    async getRemoteLogs(): Promise<Blob | null> {
+        await this.ensureReady();
+        const apiUrl = this.getApiUrl();
+        try {
+             const response = await fetch(`${apiUrl}/api/logs`, {
+                headers: this.getApiHeaders()
+             });
+             if (response.ok) return await response.blob();
+             return null;
+        } catch(e) { return null; }
     }
 }
 
