@@ -52,7 +52,7 @@ const defaultDashboardWidgets: DashboardWidget[] = [
     { id: 'data_sources', title: 'Fontes de Dados', visible: true },
 ];
 
-const CURRENT_VERSION = '3.0.2'; 
+const CURRENT_VERSION = '3.1.0'; 
 const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
 
 interface DatabaseSchema {
@@ -801,6 +801,22 @@ class DbService {
              if (response.ok) return await response.blob();
              return null;
         } catch(e) { return null; }
+    }
+    
+    async testConnection(): Promise<{ status: string, details: string }> {
+        try {
+            const response = await fetch(`${this.getApiUrl()}/status`);
+            if (response.ok) {
+                const data = await response.json();
+                return { 
+                    status: 'Conectado', 
+                    details: `API: Online (Porta ${data.port}) | DB: ${data.mysql || 'Desconhecido'}` 
+                };
+            }
+            return { status: 'Erro', details: `API respondeu com erro ${response.status}` };
+        } catch (e) {
+            return { status: 'Falha', details: 'Não foi possível contactar o servidor. Verifique se o backend está rodando.' };
+        }
     }
 }
 

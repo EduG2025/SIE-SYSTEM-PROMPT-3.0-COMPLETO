@@ -190,7 +190,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
                     <div className="bg-gradient-to-br from-brand-blue to-brand-purple p-1.5 rounded-lg shadow-lg shadow-blue-500/20 mr-3">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     </div>
-                    <h1 className="text-lg font-bold tracking-tight text-white">S.I.E. <span className="text-brand-cyan text-xs bg-brand-cyan/10 px-1 py-0.5 rounded ml-1 border border-brand-cyan/20">3.0.1</span></h1>
+                    <h1 className="text-lg font-bold tracking-tight text-white">S.I.E. <span className="text-brand-cyan text-xs bg-brand-cyan/10 px-1 py-0.5 rounded ml-1 border border-brand-cyan/20">3.1.0</span></h1>
                 </div>
             </div>
 
@@ -251,7 +251,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
 
             {/* Footer Version */}
             <div className="px-4 pb-3 text-center border-t border-white/5 pt-3 bg-brand-secondary">
-                <p className="text-[10px] text-brand-light/40">S.I.E. Intelligence System v3.0.1</p>
+                <p className="text-[10px] text-brand-light/40">S.I.E. Intelligence System v3.1.0</p>
             </div>
         </div>
     );
