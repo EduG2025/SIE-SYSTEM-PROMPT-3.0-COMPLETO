@@ -244,7 +244,6 @@ const NetworkGraph: React.FC<{
                                     width={node.r * 2} height={node.r * 2} 
                                     clipPath={`url(#clip-${node.id})`}
                                     preserveAspectRatio="xMidYMid slice"
-                                    referrerPolicy="no-referrer"
                                 />
 
                                 {/* Label (Nome) */}

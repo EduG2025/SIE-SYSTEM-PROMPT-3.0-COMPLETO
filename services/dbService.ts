@@ -53,6 +53,7 @@ const defaultDashboardWidgets: DashboardWidget[] = [
 ];
 
 const STORAGE_KEY = 'sie_db_v3';
+const CURRENT_VERSION = '3.0.1';
 
 interface DatabaseSchema {
     users: User[];
@@ -752,9 +753,23 @@ class DbService {
     }
 
     async checkForRemoteUpdates() {
-        // Real check logic would go here against GitHub API or similar
-        // For now, return a safe default
-         return { updated: false, message: "Sistema atualizado (Versão Local)." };
+        try {
+            // Verifica o arquivo package.json no repositório principal
+            const response = await fetch('https://raw.githubusercontent.com/EduG2025/SIE-SYSTEM-PROMPT-3.0-COMPLETO/main/package.json');
+            if (!response.ok) throw new Error("Falha ao contactar GitHub");
+            
+            const remotePkg = await response.json();
+            const remoteVersion = remotePkg.version;
+            
+            if (remoteVersion !== CURRENT_VERSION) {
+                 return { updated: true, message: `Nova versão disponível: ${remoteVersion}`, version: remoteVersion };
+            }
+            
+            return { updated: false, message: "Sistema atualizado.", version: CURRENT_VERSION };
+        } catch (e) {
+            console.warn("Update check failed", e);
+            return { updated: false, message: "Erro ao verificar atualizações.", version: "---" };
+        }
     }
 
     // --- API Sync & Remote Commands ---

@@ -7,8 +7,8 @@ type Tab = 'intelligence' | 'infrastructure';
 
 const SystemUpdateCard: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>('intelligence');
-    const [currentVersion, setCurrentVersion] = useState('3.0.0');
-    const [newVersion, setNewVersion] = useState('3.1.0');
+    const [currentVersion, setCurrentVersion] = useState('3.0.1');
+    const [remoteVersion, setRemoteVersion] = useState('');
     const [status, setStatus] = useState<UpdateStatus>('idle');
     const [progress, setProgress] = useState(0);
     const [updateMessage, setUpdateMessage] = useState('');
@@ -27,7 +27,7 @@ const SystemUpdateCard: React.FC = () => {
 
     useEffect(() => {
         if (status === 'updating' && progress < 100) {
-            const timer = setTimeout(() => setProgress(prev => prev + 2), 50);
+            const timer = setTimeout(() => setProgress(prev => prev + 5), 100);
             return () => clearTimeout(timer);
         }
     }, [status, progress]);
@@ -35,39 +35,48 @@ const SystemUpdateCard: React.FC = () => {
     // --- Intelligence Update (GitHub JSON) ---
     const handleCheckForUpdates = async () => {
         setStatus('checking');
-        setTimeout(async () => {
-            setStatus('available');
-            setNewVersion('3.1.0 (AI Intel)');
-        }, 1500);
-    };
-
-    const handleUpdateIntelligence = async () => {
-        setStatus('updating');
-        setProgress(0);
-        setUpdateMessage("Conectando ao repositório de inteligência...");
-
+        setUpdateMessage("Verificando...");
+        
         try {
             const result = await dbService.checkForRemoteUpdates();
-            setProgress(100);
             if (result.updated) {
-                setStatus('updated');
-                setCurrentVersion(newVersion);
+                setStatus('available');
+                setRemoteVersion(result.version || 'Desconhecida');
                 setUpdateMessage(result.message);
             } else {
                 setStatus('updated');
-                setUpdateMessage(result.message);
+                setUpdateMessage("O sistema já está na versão mais recente.");
             }
-        } catch (error) {
-            console.error(error);
+        } catch (e) {
             setStatus('error');
-            setUpdateMessage("Falha na conexão segura.");
+            setUpdateMessage("Falha ao conectar ao repositório.");
         }
     };
 
+    const handleUpdateIntelligence = async () => {
+        // Como o frontend é desacoplado, esta ação geralmente envolve
+        // apenas baixar novas regras JSON, mas aqui simulamos o fluxo
+        // completo de atualização via Git no backend se necessário.
+        setStatus('updating');
+        setProgress(0);
+        setUpdateMessage("Baixando definições de inteligência...");
+
+        // Em um sistema real, aqui faríamos um merge de dados.
+        // Como estamos usando o git pull no backend, podemos chamar o comando.
+        await executeCommand('update');
+        
+        setStatus('updated');
+        setCurrentVersion(remoteVersion);
+        setUpdateMessage("Inteligência atualizada com sucesso.");
+    };
+
     // --- Infrastructure Update (VPS Commands) ---
-    const executeCommand = async (cmd: 'update' | 'restart') => {
+    const executeCommand = async (cmd: 'update' | 'restart' | 'fix_permissions') => {
         setIsExecuting(true);
-        setTerminalOutput(prev => [...prev, `> Enviando comando: ${cmd.toUpperCase()}...`]);
+        let cmdLabel = cmd.toUpperCase();
+        if (cmd === 'fix_permissions') cmdLabel = "CORRIGIR PERMISSÕES";
+        
+        setTerminalOutput(prev => [...prev, `> Enviando comando: ${cmdLabel}...`]);
         
         try {
             const result = await dbService.executeServerCommand(cmd);
@@ -103,8 +112,8 @@ const SystemUpdateCard: React.FC = () => {
                 return (
                     <div className="flex flex-col sm:flex-row items-center justify-between py-2">
                         <div>
-                            <p className="font-semibold text-lg text-brand-yellow">Nova Definição de IA Disponível!</p>
-                            <p className="text-sm text-brand-light">Atualiza prompts e regras de análise (v{newVersion}).</p>
+                            <p className="font-semibold text-lg text-brand-yellow">Nova Versão Disponível: {remoteVersion}</p>
+                            <p className="text-sm text-brand-light">{updateMessage}</p>
                         </div>
                         <button onClick={handleUpdateIntelligence} className="bg-brand-yellow text-brand-primary font-bold py-2 px-4 rounded-lg mt-3 sm:mt-0 hover:bg-yellow-400 transition-colors shadow-lg">
                             Baixar e Aplicar
@@ -137,6 +146,7 @@ const SystemUpdateCard: React.FC = () => {
                     <div className="text-brand-red py-2">
                         <p className="font-bold flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Erro na atualização.</p>
                         <p className="text-sm mt-1 opacity-80">{updateMessage}</p>
+                        <button onClick={handleCheckForUpdates} className="text-xs underline mt-2 hover:text-white">Tentar novamente</button>
                     </div>
                  );
             case 'idle':
@@ -144,7 +154,7 @@ const SystemUpdateCard: React.FC = () => {
                 return (
                     <div className="flex flex-col sm:flex-row items-center justify-between py-2">
                         <div>
-                            <p className="text-white">Versão de IA: <span className="font-mono text-brand-cyan">{currentVersion}</span></p>
+                            <p className="text-white">Versão Atual: <span className="font-mono text-brand-cyan">{currentVersion}</span></p>
                             <p className="text-xs text-brand-light mt-1">Fonte: github.com/EduG2025</p>
                         </div>
                         <button onClick={handleCheckForUpdates} className="bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg mt-3 sm:mt-0 transition-colors flex items-center">
@@ -182,15 +192,26 @@ const SystemUpdateCard: React.FC = () => {
             <div className="bg-brand-primary/50 p-4 rounded-lg border border-brand-accent/30 min-h-[150px]">
                 {activeTab === 'intelligence' ? renderIntelligenceContent() : (
                     <div className="flex flex-col h-full">
-                        <div className="flex gap-4 mb-4">
+                        <div className="flex flex-wrap gap-4 mb-4">
                             <button 
                                 onClick={() => executeCommand('update')}
                                 disabled={isExecuting}
-                                className="flex-1 bg-brand-blue hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg"
+                                className="flex-grow bg-brand-blue hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center shadow-lg"
                             >
                                 {isExecuting ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
                                 Atualizar VPS (Git Pull)
                             </button>
+                            
+                            <button 
+                                onClick={() => executeCommand('fix_permissions')}
+                                disabled={isExecuting}
+                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:opacity-50 flex items-center shadow-lg"
+                                title="Tenta corrigir erros de permissão de arquivo (MIME type error)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h7.5a6 6 0 016 6z" /></svg>
+                                Corrigir Permissões
+                            </button>
+
                             <button 
                                 onClick={() => executeCommand('restart')}
                                 disabled={isExecuting}
