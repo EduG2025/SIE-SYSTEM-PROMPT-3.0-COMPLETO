@@ -86,8 +86,7 @@ class DbService {
     }
 
     private getApiUrl(): string {
-        // Sempre relativo para usar o Proxy do Nginx
-        return '';
+        return '/api'; // Caminho relativo para usar o Proxy do Nginx
     }
 
     private getApiHeaders(): HeadersInit {
@@ -98,34 +97,48 @@ class DbService {
     }
 
     private async init() {
-        // Tenta carregar do MySQL via API
+        console.log("[DB] Tentando carregar estado do Backend MySQL...");
         try {
-            const response = await fetch('/api/state', { 
+            const response = await fetch(`${this.getApiUrl()}/state`, { 
                 headers: { 'x-sync-token': DEFAULT_API_TOKEN } 
             });
             
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") === -1) {
+                console.error("[DB CRITICAL] A API retornou HTML em vez de JSON. Verifique o Nginx e se o servidor Node.js está rodando.");
+                throw new Error("Erro de Proxy Nginx/Node");
+            }
+
             if (response.ok) {
                 const remoteData = await response.json();
                 if (remoteData && Object.keys(remoteData).length > 0) {
                     this.data = remoteData;
                     this.initialized = true;
-                    console.log("Dados carregados do MySQL com sucesso.");
+                    console.log("[DB] ✅ Dados carregados do MySQL com sucesso.");
                     return;
+                } else {
+                     console.log("[DB] MySQL conectado, mas tabela vazia. Inicializando dados padrão...");
                 }
+            } else {
+                console.warn(`[DB] Erro na resposta da API: ${response.status} ${response.statusText}`);
             }
         } catch (e) {
-            console.warn("Falha ao carregar dados do MySQL:", e);
+            console.error("[DB] ❌ Falha crítica ao conectar com API/MySQL:", e);
         }
 
-        // Se falhar ou estiver vazio, inicia com defaults e salva no MySQL
-        console.log("Iniciando com dados padrão...");
+        // Se falhar ou estiver vazio, inicia com defaults e TENTA salvar no MySQL
         await this.resetDatabase();
         this.initialized = true;
     }
 
     private async ensureReady() {
         if (!this.initialized || !this.data) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Pequena espera ativa se estiver inicializando
+            let attempts = 0;
+            while (!this.initialized && attempts < 10) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                attempts++;
+            }
             if (!this.data) await this.init();
         }
     }
@@ -134,21 +147,20 @@ class DbService {
     private async persistState() {
         if (!this.data) return;
         
-        // Limpa timeout anterior para evitar spam de requests
         if (this.syncTimeout) clearTimeout(this.syncTimeout);
 
         this.syncTimeout = setTimeout(async () => {
             try {
-                const response = await fetch('/api/state', {
+                const response = await fetch(`${this.getApiUrl()}/state`, {
                     method: 'POST',
                     headers: this.getApiHeaders(),
                     body: JSON.stringify(this.data)
                 });
-                if (!response.ok) console.error("Erro ao salvar no MySQL");
+                if (!response.ok) console.error("[DB] Erro ao salvar estado no MySQL");
             } catch (e) {
-                console.error("Erro de rede ao salvar:", e);
+                console.error("[DB] Erro de rede ao salvar:", e);
             }
-        }, 500); // Aguarda 500ms de inatividade antes de salvar
+        }, 500); 
     }
 
     async resetDatabase() {
@@ -181,12 +193,17 @@ class DbService {
             logs: [],
             aiAutomationSettings: { isEnabled: false, frequency: 'daily' }
         };
-        // Força salvamento imediato
-        await fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-sync-token': DEFAULT_API_TOKEN },
-            body: JSON.stringify(this.data)
-        });
+        
+        // Tenta forçar a escrita inicial no banco para garantir que a tabela exista e tenha dados
+        try {
+            await fetch(`${this.getApiUrl()}/state`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-sync-token': DEFAULT_API_TOKEN },
+                body: JSON.stringify(this.data)
+            });
+        } catch (e) {
+            console.error("[DB] Falha ao inicializar banco remoto durante reset:", e);
+        }
     }
 
     // --- Users & Auth ---
@@ -757,7 +774,7 @@ class DbService {
         const token = DEFAULT_API_TOKEN; 
 
         try {
-            const response = await fetch('/api/execute', {
+            const response = await fetch(`${this.getApiUrl()}/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-sync-token': token },
                 body: JSON.stringify({ command: cmd })
@@ -780,7 +797,7 @@ class DbService {
     
     async getRemoteLogs(): Promise<Blob | null> {
         try {
-             const response = await fetch('/api/logs', { headers: { 'x-sync-token': DEFAULT_API_TOKEN } });
+             const response = await fetch(`${this.getApiUrl()}/logs`, { headers: { 'x-sync-token': DEFAULT_API_TOKEN } });
              if (response.ok) return await response.blob();
              return null;
         } catch(e) { return null; }
