@@ -21,38 +21,67 @@ const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => v
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-                <label className="text-sm text-brand-light mb-1 block">URL da API (VPS/Servidor)</label>
-                <input 
-                    type="text" 
-                    name="apiUrl" 
-                    value={formData.apiUrl || ''} 
-                    onChange={handleChange} 
-                    placeholder="Deixe vazio para usar conexão interna (Recomendado)"
-                    className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
-                />
-                <p className="text-xs text-brand-light mt-1">
-                    Deixe em <strong>branco</strong> para usar a conexão interna segura via Nginx (Porta 3000).
-                    <br/>Use uma URL completa (http://...) apenas se a API estiver em outro servidor.
-                </p>
+            <div className="border-b border-brand-accent pb-4 mb-4">
+                <h4 className="text-md font-bold text-white mb-3">1. Conexão com Backend (API)</h4>
+                <div>
+                    <label className="text-sm text-brand-light mb-1 block">URL da API (VPS/Servidor)</label>
+                    <input 
+                        type="text" 
+                        name="apiUrl" 
+                        value={formData.apiUrl || ''} 
+                        onChange={handleChange} 
+                        placeholder="Deixe vazio para usar conexão interna (Recomendado)"
+                        className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
+                    />
+                    <p className="text-xs text-brand-light mt-1">
+                        Deixe em <strong>branco</strong> para usar a conexão interna segura via Nginx (Porta 3000).
+                    </p>
+                </div>
+                <div className="mt-3">
+                    <label className="text-sm text-brand-light mb-1 block">Token de Autenticação (Secret)</label>
+                    <input 
+                        type="password" 
+                        name="apiToken" 
+                        value={formData.apiToken || ''} 
+                        onChange={handleChange} 
+                        placeholder="Senha definida no servidor"
+                        className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
+                        required
+                    />
+                     <p className="text-xs text-brand-light mt-1">Chave de segurança para permitir sincronização.</p>
+                </div>
             </div>
+
             <div>
-                <label className="text-sm text-brand-light mb-1 block">Token de Autenticação (Secret)</label>
-                <input 
-                    type="password" 
-                    name="apiToken" 
-                    value={formData.apiToken || ''} 
-                    onChange={handleChange} 
-                    placeholder="Senha definida no servidor"
-                    className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
-                    required
-                />
-                 <p className="text-xs text-brand-light mt-1">Chave de segurança para permitir escrita no banco.</p>
+                <h4 className="text-md font-bold text-white mb-3">2. Configuração de Banco de Dados (MySQL)</h4>
+                <p className="text-xs text-brand-light mb-3">Estas credenciais são usadas para gerar instaladores SQL ou para integrações futuras no backend.</p>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                         <label className="text-sm text-brand-light mb-1 block">Host</label>
+                         <input type="text" name="host" value={formData.host || '127.0.0.1'} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent" />
+                    </div>
+                    <div>
+                         <label className="text-sm text-brand-light mb-1 block">Porta</label>
+                         <input type="text" name="port" value={formData.port || '3306'} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent" />
+                    </div>
+                    <div>
+                         <label className="text-sm text-brand-light mb-1 block">Banco de Dados</label>
+                         <input type="text" name="database" value={formData.database || 'sie301'} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent" />
+                    </div>
+                    <div>
+                         <label className="text-sm text-brand-light mb-1 block">Usuário</label>
+                         <input type="text" name="user" value={formData.user || 'sie301'} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent" />
+                    </div>
+                    <div className="col-span-2">
+                         <label className="text-sm text-brand-light mb-1 block">Senha</label>
+                         <input type="password" name="password" value={formData.password || ''} onChange={handleChange} className="w-full bg-brand-primary p-2 rounded border border-brand-accent" placeholder="Senha do banco MySQL" />
+                    </div>
+                </div>
             </div>
             
              <div className="flex justify-end gap-4 mt-6">
                 <button type="button" onClick={onCancel} className="bg-brand-accent text-white px-4 py-2 rounded-lg">Cancelar</button>
-                <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-lg">Salvar e Conectar</button>
+                <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-lg">Salvar Configurações</button>
             </div>
         </form>
     );
@@ -160,7 +189,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         const updatedConfig = await dbService.getDbConfig();
         setDbConfig(updatedConfig);
         setIsDbModalOpen(false);
-        showToast('Configuração de sincronização salva! Tentando conectar...', 'success');
+        showToast('Configuração salva! Backend notificado.', 'success');
     };
 
     const handleSavePrompt = async () => {
@@ -175,7 +204,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
     return (
         <div className="space-y-8">
              {isDbModalOpen && (
-                <Modal title="Configurar Sincronização (API)" onClose={() => setIsDbModalOpen(false)}>
+                <Modal title="Configurações de Infraestrutura" onClose={() => setIsDbModalOpen(false)}>
                     <DbConfigForm config={dbConfig} onSave={handleSaveDbConfig} onCancel={() => setIsDbModalOpen(false)} />
                 </Modal>
              )}
@@ -255,26 +284,32 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                         </button>
                     </div>
                     <div>
-                        <h4 className="font-bold text-lg mb-4">Sincronização com Servidor (MySQL/API)</h4>
+                        <h4 className="font-bold text-lg mb-4">Infraestrutura & Sincronização</h4>
                         <div className="space-y-3 text-sm bg-brand-primary p-4 rounded border border-brand-accent/30">
                             <div className="flex justify-between items-center">
-                                <strong>Status:</strong>
+                                <strong>Status Backend:</strong>
                                 <span className={`font-bold px-2 py-1 rounded text-xs ${dbConfig.status === 'Conectado' ? 'bg-green-500/20 text-green-400' : dbConfig.status === 'Erro' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400' }`}>
                                     {dbConfig.status || 'Não Configurado'}
                                 </span>
                             </div>
                             <p className="truncate" title={dbConfig.apiUrl}>
-                                <strong>Endpoint:</strong> {dbConfig.apiUrl ? dbConfig.apiUrl : '<Interno>'}
+                                <strong>Endpoint API:</strong> {dbConfig.apiUrl ? dbConfig.apiUrl : '<Interno>'}
                             </p>
+                            <div className="mt-2 border-t border-brand-accent/30 pt-2">
+                                <p className="text-xs font-bold text-brand-light mb-1">Configuração MySQL (Alvo):</p>
+                                <p><strong>Host:</strong> {dbConfig.host || '-'}</p>
+                                <p><strong>Banco:</strong> {dbConfig.database || '-'}</p>
+                                <p><strong>Usuário:</strong> {dbConfig.user || '-'}</p>
+                            </div>
                             <p>
                                 <strong>Último Sync:</strong> {dbConfig.lastSync ? new Date(dbConfig.lastSync).toLocaleString('pt-BR') : 'Nunca'}
                             </p>
                             <p className="text-xs text-brand-light italic mt-2">
-                                O sistema sincroniza automaticamente as alterações locais com o servidor configurado.
+                                O sistema utiliza estas credenciais para gerar instaladores SQL e backups compatíveis com sua VPS.
                             </p>
                         </div>
                         <button onClick={() => setIsDbModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg transition-colors w-full">
-                            Configurar Conexão API
+                            Configurar Conexão
                         </button>
                     </div>
                 </div>

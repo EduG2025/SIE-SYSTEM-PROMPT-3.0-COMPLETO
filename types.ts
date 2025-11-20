@@ -297,11 +297,12 @@ export interface DbConfig {
   apiToken: string;
   status: 'Conectado' | 'Desconectado' | 'Sincronizando' | 'Erro';
   lastSync?: string;
-  // Campos legados mantidos como opcionais para compatibilidade reversa durante migração
+  // Configurações MySQL
   host?: string;
   port?: string;
   user?: string;
   password?: string;
+  database?: string;
 }
 
 export interface DataSource {

@@ -107,6 +107,17 @@ class DbService {
                     this.data.dbConfig.apiToken = DEFAULT_API_TOKEN;
                     changed = true;
                 }
+                
+                // Garante configurações padrão do MySQL se estiverem vazias
+                if (!this.data.dbConfig.host) {
+                    this.data.dbConfig.host = '127.0.0.1';
+                    this.data.dbConfig.port = '3306';
+                    this.data.dbConfig.user = 'sie301';
+                    this.data.dbConfig.password = 'Gegerminal180!';
+                    this.data.dbConfig.database = 'sie301';
+                    changed = true;
+                }
+
                 if (changed) {
                     await this.saveToStorage();
                 }
@@ -167,7 +178,13 @@ class DbService {
             dbConfig: { 
                 apiUrl: DEFAULT_API_URL, 
                 apiToken: DEFAULT_API_TOKEN, 
-                status: 'Desconectado' 
+                status: 'Desconectado',
+                // Configurações MySQL Padrão
+                host: '127.0.0.1',
+                port: '3306',
+                user: 'sie301',
+                password: 'Gegerminal180!',
+                database: 'sie301'
             },
             systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
             logs: [],
