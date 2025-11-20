@@ -53,7 +53,11 @@ const defaultDashboardWidgets: DashboardWidget[] = [
 ];
 
 const STORAGE_KEY = 'sie_db_v3';
-const CURRENT_VERSION = '3.0.1';
+const CURRENT_VERSION = '3.0.2'; // Versão incrementada para forçar refresh lógico
+
+// CONFIGURAÇÕES PADRÃO DA VPS
+const DEFAULT_API_URL = 'https://sie.jennyai.space';
+const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
 
 interface DatabaseSchema {
     users: User[];
@@ -88,6 +92,23 @@ class DbService {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
             this.data = JSON.parse(stored);
+            
+            // AUTO-CONFIGURAÇÃO: Se as configurações estiverem vazias, aplica os padrões da VPS
+            // Isso garante que usuários existentes recebam a configuração sem perder dados
+            if (this.data && this.data.dbConfig) {
+                let changed = false;
+                if (!this.data.dbConfig.apiUrl) {
+                    this.data.dbConfig.apiUrl = DEFAULT_API_URL;
+                    changed = true;
+                }
+                if (!this.data.dbConfig.apiToken) {
+                    this.data.dbConfig.apiToken = DEFAULT_API_TOKEN;
+                    changed = true;
+                }
+                if (changed) {
+                    await this.saveToStorage();
+                }
+            }
         } else {
             await this.resetDatabase();
         }
@@ -107,22 +128,22 @@ class DbService {
         }
     }
     
-    // Helper para determinar URL da API
+    // Determina a URL da API para comunicação com a VPS
     private getApiUrl(): string {
-        // Se o usuário configurou uma URL manual, usa ela
+        // 1. Se o usuário configurou manualmente, usa o valor
         if (this.data?.dbConfig?.apiUrl && this.data.dbConfig.apiUrl.trim() !== '') {
             return this.data.dbConfig.apiUrl;
         }
-        // Caso contrário, assume que está rodando no mesmo domínio via proxy nginx
-        // Detecta se está em localhost (dev) ou produção
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        return isLocalhost ? 'http://localhost:3000' : '/api';
+        
+        // 2. Padrão: usa a constante definida
+        return DEFAULT_API_URL;
     }
 
     private getApiHeaders(): HeadersInit {
         return {
             'Content-Type': 'application/json',
-            'x-sync-token': this.data?.dbConfig?.apiToken || ''
+            // Envia o token configurado no painel
+            'x-sync-token': this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN
         };
     }
 
@@ -142,7 +163,12 @@ class DbService {
             timelineEvents: initialTimelineEvents,
             dashboardData: {},
             dashboardWidgets: defaultDashboardWidgets,
-            dbConfig: { apiUrl: '', apiToken: '', status: 'Desconectado' },
+            // CONFIGURAÇÃO PADRÃO APLICADA AQUI
+            dbConfig: { 
+                apiUrl: DEFAULT_API_URL, 
+                apiToken: DEFAULT_API_TOKEN, 
+                status: 'Desconectado' 
+            },
             systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
             logs: [],
             aiAutomationSettings: { isEnabled: false, frequency: 'daily' }
@@ -811,23 +837,38 @@ class DbService {
         await this.saveToStorage();
     }
 
-    // Comando Remoto (Execução no Servidor)
+    // Comando Remoto (Execução no Servidor) - REALMENTE EXECUTA, SEM MOCKS
     async executeServerCommand(cmd: string): Promise<{ success: boolean, output: string }> {
         await this.ensureReady();
+        
         const apiUrl = this.getApiUrl();
         const token = this.data?.dbConfig?.apiToken;
 
-        if (!token) return { success: false, output: "Token de API não configurado." };
+        // Validação: Se não houver token, não adianta tentar
+        if (!token) {
+            return { 
+                success: false, 
+                output: "ERRO: Token de API não configurado em 'Sistema'. Configure para conectar à VPS." 
+            };
+        }
 
         try {
+            // Chamada Real via Fetch
             const response = await fetch(`${apiUrl}/api/execute`, {
                 method: 'POST',
                 headers: this.getApiHeaders(),
                 body: JSON.stringify({ command: cmd })
             });
-            return await response.json();
+            
+            const result = await response.json();
+            return result; // Retorna o JSON real do servidor (sucesso ou erro)
+
         } catch (e) {
-             return { success: false, output: `Erro de conexão: ${(e as Error).message}` };
+             // Erro de rede (ex: servidor offline, porta bloqueada)
+             return { 
+                 success: false, 
+                 output: `FALHA CRÍTICA DE CONEXÃO: ${(e as Error).message}. Verifique se o servidor Node.js está rodando na porta 3000.` 
+             };
         }
     }
     
