@@ -24,7 +24,7 @@ import {
     generateRealTimeline
 } from './geminiService';
 
-// Define Mock Data for things not in separate files yet or just placeholders
+// Define Mock Data
 const initialPlans: UserPlan[] = [
     { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
     { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
@@ -52,12 +52,7 @@ const defaultDashboardWidgets: DashboardWidget[] = [
     { id: 'data_sources', title: 'Fontes de Dados', visible: true },
 ];
 
-const STORAGE_KEY = 'sie_db_v3';
 const CURRENT_VERSION = '3.0.2'; 
-
-// EM PRODUÇÃO (Nginx Proxy): Deixar vazio para usar caminho relativo "/api"
-// Isso garante que a requisição vá para o mesmo domínio e porta 80/443, onde o Nginx intercepta.
-const DEFAULT_API_URL = ''; 
 const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
 
 interface DatabaseSchema {
@@ -66,7 +61,7 @@ interface DatabaseSchema {
     apiKeys: ApiKey[];
     dataSources: DataSourceCategory[];
     plans: UserPlan[];
-    politicians: Politician[]; // Simplified for storage, expanded in memory map
+    politicians: Politician[]; 
     employees: Employee[];
     companies: Company[];
     contracts: Contract[];
@@ -84,71 +79,14 @@ interface DatabaseSchema {
 class DbService {
     private data: DatabaseSchema | null = null;
     private initialized = false;
+    private syncTimeout: any = null;
 
     constructor() {
         this.init();
     }
 
-    private async init() {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-            this.data = JSON.parse(stored);
-            
-            // AUTO-CONFIGURAÇÃO:
-            // Se a URL estiver configurada incorretamente (com porta 3000 direta) ou vazia, reseta para padrão
-            if (this.data && this.data.dbConfig) {
-                let changed = false;
-                // Força vazio se estiver apontando para porta 3000 diretamente (bloqueado por CORS/Firewall geralmente)
-                if (this.data.dbConfig.apiUrl && this.data.dbConfig.apiUrl.includes(':3000')) {
-                    this.data.dbConfig.apiUrl = DEFAULT_API_URL;
-                    changed = true;
-                }
-                if (!this.data.dbConfig.apiToken) {
-                    this.data.dbConfig.apiToken = DEFAULT_API_TOKEN;
-                    changed = true;
-                }
-                
-                // Garante configurações padrão do MySQL se estiverem vazias
-                if (!this.data.dbConfig.host) {
-                    this.data.dbConfig.host = '127.0.0.1';
-                    this.data.dbConfig.port = '3306';
-                    this.data.dbConfig.user = 'sie301';
-                    this.data.dbConfig.password = 'Gegerminal180!';
-                    this.data.dbConfig.database = 'sie301';
-                    changed = true;
-                }
-
-                if (changed) {
-                    await this.saveToStorage();
-                }
-            }
-        } else {
-            await this.resetDatabase();
-        }
-        this.initialized = true;
-    }
-
-    private async ensureReady() {
-        if (!this.initialized) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            if (!this.data) await this.init();
-        }
-    }
-
-    private async saveToStorage() {
-        if (this.data) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
-        }
-    }
-    
-    // Determina a URL da API para comunicação com a VPS
     private getApiUrl(): string {
-        // Se o usuário digitou algo no painel, usa.
-        // Se estiver vazio (padrão), retorna string vazia para o browser montar "/api/..."
-        if (this.data?.dbConfig?.apiUrl) {
-            // Remove barra final se existir para evitar //api
-            return this.data.dbConfig.apiUrl.replace(/\/$/, '');
-        }
+        // Sempre relativo para usar o Proxy do Nginx
         return '';
     }
 
@@ -157,6 +95,60 @@ class DbService {
             'Content-Type': 'application/json',
             'x-sync-token': this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN
         };
+    }
+
+    private async init() {
+        // Tenta carregar do MySQL via API
+        try {
+            const response = await fetch('/api/state', { 
+                headers: { 'x-sync-token': DEFAULT_API_TOKEN } 
+            });
+            
+            if (response.ok) {
+                const remoteData = await response.json();
+                if (remoteData && Object.keys(remoteData).length > 0) {
+                    this.data = remoteData;
+                    this.initialized = true;
+                    console.log("Dados carregados do MySQL com sucesso.");
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn("Falha ao carregar dados do MySQL:", e);
+        }
+
+        // Se falhar ou estiver vazio, inicia com defaults e salva no MySQL
+        console.log("Iniciando com dados padrão...");
+        await this.resetDatabase();
+        this.initialized = true;
+    }
+
+    private async ensureReady() {
+        if (!this.initialized || !this.data) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (!this.data) await this.init();
+        }
+    }
+
+    // Salva diretamente no MySQL (Debounced)
+    private async persistState() {
+        if (!this.data) return;
+        
+        // Limpa timeout anterior para evitar spam de requests
+        if (this.syncTimeout) clearTimeout(this.syncTimeout);
+
+        this.syncTimeout = setTimeout(async () => {
+            try {
+                const response = await fetch('/api/state', {
+                    method: 'POST',
+                    headers: this.getApiHeaders(),
+                    body: JSON.stringify(this.data)
+                });
+                if (!response.ok) console.error("Erro ao salvar no MySQL");
+            } catch (e) {
+                console.error("Erro de rede ao salvar:", e);
+            }
+        }, 500); // Aguarda 500ms de inatividade antes de salvar
     }
 
     async resetDatabase() {
@@ -176,10 +168,9 @@ class DbService {
             dashboardData: {},
             dashboardWidgets: defaultDashboardWidgets,
             dbConfig: { 
-                apiUrl: DEFAULT_API_URL, 
+                apiUrl: '', 
                 apiToken: DEFAULT_API_TOKEN, 
-                status: 'Desconectado',
-                // Configurações MySQL Padrão
+                status: 'Conectado',
                 host: '127.0.0.1',
                 port: '3306',
                 user: 'sie301',
@@ -190,7 +181,12 @@ class DbService {
             logs: [],
             aiAutomationSettings: { isEnabled: false, frequency: 'daily' }
         };
-        await this.saveToStorage();
+        // Força salvamento imediato
+        await fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-sync-token': DEFAULT_API_TOKEN },
+            body: JSON.stringify(this.data)
+        });
     }
 
     // --- Users & Auth ---
@@ -206,8 +202,7 @@ class DbService {
             this.data!.users.push(user);
             this.logActivity('INFO', `Novo usuário criado: ${user.username}`, adminUsername);
         }
-        await this.saveToStorage();
-        this.syncData(); // Tenta sincronizar com API
+        await this.persistState();
     }
 
     async deleteUser(id: number, adminUsername: string): Promise<boolean> {
@@ -216,8 +211,7 @@ class DbService {
         this.data!.users = this.data!.users.filter(u => u.id !== id);
         if (this.data!.users.length < initialLen) {
             this.logActivity('WARN', `Usuário deletado ID: ${id}`, adminUsername);
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
             return true;
         }
         return false;
@@ -228,8 +222,7 @@ class DbService {
          const user = this.data!.users.find(u => u.id === id);
          if (!user) throw new Error("User not found");
          Object.assign(user, updates);
-         await this.saveToStorage();
-         this.syncData();
+         await this.persistState();
          return user;
     }
     
@@ -238,9 +231,8 @@ class DbService {
         const user = this.data!.users.find(u => u.id === userId);
         if (user) {
             user.apiKey = key;
-            user.canUseOwnApiKey = true; // Implicitly allowed if they can save it via UI
-            await this.saveToStorage();
-            this.syncData();
+            user.canUseOwnApiKey = true; 
+            await this.persistState();
         }
     }
 
@@ -249,8 +241,7 @@ class DbService {
         const user = this.data!.users.find(u => u.id === userId);
         if (user) {
             user.apiKey = undefined;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
 
@@ -297,8 +288,7 @@ class DbService {
                 return { allowed: false, usage: user.usage, limit };
             }
             user.usage++;
-            await this.saveToStorage();
-            // Não sincroniza a cada incremento de cota para economizar banda, apenas em ações maiores
+            await this.persistState();
         }
         return { allowed: true, usage: user.usage, limit };
     }
@@ -318,14 +308,12 @@ class DbService {
         const idx = this.data!.plans.findIndex(p => p.id === plan.id);
         if (idx >= 0) this.data!.plans[idx] = plan;
         else this.data!.plans.push(plan);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async deletePlan(id: string) {
         await this.ensureReady();
         this.data!.plans = this.data!.plans.filter(p => p.id !== id);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     // --- API Keys ---
@@ -340,15 +328,13 @@ class DbService {
             usageCount: 0
         });
         this.logActivity('INFO', `Nova chave de API adicionada`, username);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async removeApiKey(id: number, username: string) {
         await this.ensureReady();
         this.data!.apiKeys = this.data!.apiKeys.filter(k => k.id !== id);
         this.logActivity('WARN', `Chave de API removida: ${id}`, username);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async toggleApiKeyStatus(id: number, username: string) {
         await this.ensureReady();
@@ -356,8 +342,7 @@ class DbService {
         if (key) {
             key.status = key.status === 'Ativa' ? 'Inativa' : 'Ativa';
             this.logActivity('INFO', `Status da chave API ${id} alterado para ${key.status}`, username);
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async setApiKeyStatus(id: number, status: 'Ativa' | 'Inativa') {
@@ -365,20 +350,17 @@ class DbService {
         const key = this.data!.apiKeys.find(k => k.id === id);
         if (key) {
             key.status = status;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async getNextSystemApiKey(): Promise<string> {
         await this.ensureReady();
         const activeKeys = this.data!.apiKeys.filter(k => k.status === 'Ativa');
         if (activeKeys.length === 0) throw new Error("No active API keys available");
-        
-        // Simple Round Robin or Random
         const key = activeKeys[Math.floor(Math.random() * activeKeys.length)];
         key.usageCount++;
         key.lastUsed = new Date().toISOString();
-        await this.saveToStorage();
+        await this.persistState();
         return key.key;
     }
 
@@ -393,8 +375,7 @@ class DbService {
         const mod = this.data!.modules.find(m => m.id === id);
         if (mod) {
             mod.active = active;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async saveModuleConfig(id: string, updates: Partial<Module>) {
@@ -402,8 +383,7 @@ class DbService {
         const mod = this.data!.modules.find(m => m.id === id);
         if (mod) {
             Object.assign(mod, updates);
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async saveModuleRules(view: string, rules: string) {
@@ -411,21 +391,18 @@ class DbService {
         const mod = this.data!.modules.find(m => m.view === view);
         if (mod) {
             mod.rules = rules;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async deleteModule(id: string) {
         await this.ensureReady();
         this.data!.modules = this.data!.modules.filter(m => m.id !== id);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async addModule(module: Module) {
         await this.ensureReady();
         this.data!.modules.push(module);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     // --- Data Sources ---
@@ -435,8 +412,7 @@ class DbService {
         const cat = this.data!.dataSources.find(c => c.id === categoryId);
         if (cat) {
             cat.sources.push({ ...source, id: Date.now() });
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async updateDataSource(id: number, updates: any) {
@@ -445,8 +421,7 @@ class DbService {
             const src = cat.sources.find(s => s.id === id);
             if (src) {
                 Object.assign(src, updates);
-                await this.saveToStorage();
-                this.syncData();
+                await this.persistState();
                 return;
             }
         }
@@ -456,8 +431,7 @@ class DbService {
         for (const cat of this.data!.dataSources) {
             cat.sources = cat.sources.filter(s => s.id !== id);
         }
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async toggleDataSourceStatus(id: number) {
         await this.ensureReady();
@@ -466,8 +440,7 @@ class DbService {
             if (src) {
                 src.active = !src.active;
                 src.status = src.active ? 'Ativa' : 'Inativa';
-                await this.saveToStorage();
-                this.syncData();
+                await this.persistState();
                 return;
             }
         }
@@ -475,23 +448,20 @@ class DbService {
     async addDataSourceCategory(name: string) {
         await this.ensureReady();
         this.data!.dataSources.push({ id: Date.now(), name, sources: [] });
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async renameDataSourceCategory(id: number, name: string) {
         await this.ensureReady();
         const cat = this.data!.dataSources.find(c => c.id === id);
         if (cat) {
             cat.name = name;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     async deleteDataSourceCategory(id: number) {
         await this.ensureReady();
         this.data!.dataSources = this.data!.dataSources.filter(c => c.id !== id);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async addSourceToCategoryByName(suggested: SuggestedSource) {
         await this.ensureReady();
@@ -508,8 +478,7 @@ class DbService {
             active: true,
             status: 'Ativa'
         });
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async validateAllDataSources() {
         await this.ensureReady();
@@ -522,8 +491,7 @@ class DbService {
                 }
             }
         }
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     
     // --- Automation ---
@@ -531,15 +499,13 @@ class DbService {
     async saveAiAutomationSettings(settings: AiAutomationSettings) {
         await this.ensureReady();
         this.data!.aiAutomationSettings = settings;
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     async runAiAutomationTask() {
         await this.ensureReady();
         this.data!.aiAutomationSettings.lastRun = new Date().toISOString();
         this.data!.aiAutomationSettings.lastRunResult = 'Executado com sucesso. 0 novas fontes.';
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     // --- Dashboard ---
@@ -547,8 +513,7 @@ class DbService {
     async saveDashboardWidgets(widgets: DashboardWidget[]) {
         await this.ensureReady();
         this.data!.dashboardWidgets = widgets;
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
@@ -558,8 +523,7 @@ class DbService {
         }
         const newData = await generateFullDashboardData(municipality);
         this.data!.dashboardData[municipality] = newData;
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
         return newData;
     }
 
@@ -570,8 +534,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newEmployees = await generateRealEmployees(municipality);
              this.data!.employees = newEmployees;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.employees;
     }
@@ -582,8 +545,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newCos = await generateRealCompanies(municipality);
              this.data!.companies = newCos;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.companies;
     }
@@ -594,8 +556,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newConts = await generateRealContracts(municipality);
              this.data!.contracts = newConts;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.contracts;
     }
@@ -606,8 +567,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newLaws = await generateRealLawsuits(municipality);
              this.data!.lawsuits = newLaws;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.lawsuits;
     }
@@ -618,8 +578,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newPosts = await generateRealSocialPosts(municipality);
              this.data!.socialPosts = newPosts;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.socialPosts;
     }
@@ -630,8 +589,7 @@ class DbService {
              const municipality = Object.keys(this.data!.dashboardData)[0] || 'Example City';
              const newTimeline = await generateRealTimeline(municipality);
              this.data!.timelineEvents = newTimeline;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
         }
         return this.data!.timelineEvents;
     }
@@ -652,8 +610,7 @@ class DbService {
         if (p) {
              const updated = await generateDeepPoliticianAnalysis(p);
              Object.assign(p, updated);
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
              return { data: p, timestamp: Date.now(), source: 'api' };
         }
         throw new Error("Politician not found");
@@ -664,8 +621,7 @@ class DbService {
         if (this.data!.politicians.length === 0) {
              const leaders = await generatePoliticalLeadership(municipality);
              this.data!.politicians = leaders;
-             await this.saveToStorage();
-             this.syncData();
+             await this.persistState();
              return leaders;
         }
         return this.data!.politicians;
@@ -674,14 +630,12 @@ class DbService {
     async scanPoliticalSquad(municipality: string) {
         await this.ensureReady();
         const squad = await generatePoliticalSquad(municipality);
-        // Merge without duplicates
         for (const p of squad) {
             if (!this.data!.politicians.find(ex => ex.id === p.id)) {
                 this.data!.politicians.push(p);
             }
         }
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     async togglePoliticianMonitoring(id: string) {
@@ -689,8 +643,7 @@ class DbService {
         const p = this.data!.politicians.find(pol => pol.id === id);
         if (p) {
             p.monitored = !p.monitored;
-            await this.saveToStorage();
-            this.syncData();
+            await this.persistState();
         }
     }
     
@@ -704,8 +657,7 @@ class DbService {
         await this.ensureReady();
         this.data!.dbConfig = config;
         this.logActivity('AUDIT', `Configuração de DB alterada`, username);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     async getSystemPrompt(): Promise<string> { await this.ensureReady(); return this.data!.systemPrompt; }
@@ -713,8 +665,7 @@ class DbService {
         await this.ensureReady();
         this.data!.systemPrompt = prompt;
         this.logActivity('AUDIT', `System prompt atualizado`, username);
-        await this.saveToStorage();
-        this.syncData();
+        await this.persistState();
     }
 
     async getCompactDatabaseSnapshot(): Promise<string> {
@@ -731,7 +682,7 @@ class DbService {
         if (this.data) {
             this.data.logs.unshift({ id: Date.now(), timestamp: new Date().toISOString(), level, message, user });
             if (this.data.logs.length > 100) this.data.logs.pop();
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+            this.persistState();
         }
     }
     
@@ -752,7 +703,6 @@ class DbService {
         };
     }
     
-    // --- Maintenance ---
     async getFullDatabaseBackup() {
         await this.ensureReady();
         return this.data;
@@ -797,104 +747,40 @@ class DbService {
             if (remoteVersion !== CURRENT_VERSION) {
                  return { updated: true, message: `Nova versão disponível: ${remoteVersion}`, version: remoteVersion };
             }
-            
             return { updated: false, message: "Sistema atualizado.", version: CURRENT_VERSION };
         } catch (e) {
-            console.warn("Update check failed", e);
             return { updated: false, message: "Erro ao verificar atualizações.", version: "---" };
         }
     }
 
-    // --- API Sync & Remote Commands ---
-
-    private async syncData() {
-        if (!this.data?.dbConfig?.apiToken) return;
-        const apiUrl = this.getApiUrl();
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-            this.data.dbConfig.status = 'Sincronizando';
-            
-            // Use relative path if configured as default, or absolute if customized
-            const endpoint = apiUrl ? `${apiUrl}/api/data` : '/api/data';
-
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: this.getApiHeaders(),
-                body: JSON.stringify(this.data),
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-                this.data.dbConfig.status = 'Conectado';
-                this.data.dbConfig.lastSync = new Date().toISOString();
-            } else {
-                this.data.dbConfig.status = 'Erro';
-            }
-        } catch (e) {
-            this.data.dbConfig.status = 'Erro';
-        }
-        await this.saveToStorage();
-    }
-
     async executeServerCommand(cmd: string): Promise<{ success: boolean, output: string }> {
-        await this.ensureReady();
-        
-        const apiUrl = this.getApiUrl();
-        const token = this.data?.dbConfig?.apiToken;
-
-        if (!token) {
-            return { 
-                success: false, 
-                output: "ERRO: Token de API não configurado em 'Sistema'. Configure para conectar à VPS." 
-            };
-        }
-
-        const endpoint = apiUrl ? `${apiUrl}/api/execute` : '/api/execute';
+        const token = DEFAULT_API_TOKEN; 
 
         try {
-            const response = await fetch(endpoint, {
+            const response = await fetch('/api/execute', {
                 method: 'POST',
-                headers: this.getApiHeaders(),
+                headers: { 'Content-Type': 'application/json', 'x-sync-token': token },
                 body: JSON.stringify({ command: cmd })
             });
             
-            // CRITICAL: Check for HTML response (CloudPanel Error page)
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") === -1) {
                  const text = await response.text();
                  if (text.includes("<!DOCTYPE html")) {
-                     return {
-                         success: false,
-                         output: "ERRO CRÍTICO: O servidor Nginx devolveu a página do site em vez da API. \n\nSOLUÇÃO: Vá no CloudPanel > Vhost e adicione o bloco 'location /api' para proxy reverso na porta 3000."
-                     };
+                     return { success: false, output: "ERRO CRÍTICO DE PROXY: O Nginx não redirecionou a API. Configure o bloco 'location /api' no Vhost." };
                  }
-                 return { success: false, output: `Erro desconhecido: ${text.substring(0, 100)}` };
+                 return { success: false, output: `Erro: ${text.substring(0, 50)}` };
             }
-
-            const result = await response.json();
-            return result;
+            return await response.json();
 
         } catch (e) {
-             return { 
-                 success: false, 
-                 output: `FALHA DE CONEXÃO: ${(e as Error).message}. Verifique se o servidor backend está rodando (pm2 list).` 
-             };
+             return { success: false, output: `FALHA DE CONEXÃO: ${(e as Error).message}. O backend (server.cjs) está rodando?` };
         }
     }
     
     async getRemoteLogs(): Promise<Blob | null> {
-        await this.ensureReady();
-        const apiUrl = this.getApiUrl();
-        const endpoint = apiUrl ? `${apiUrl}/api/logs` : '/api/logs';
         try {
-             const response = await fetch(endpoint, {
-                headers: this.getApiHeaders()
-             });
+             const response = await fetch('/api/logs', { headers: { 'x-sync-token': DEFAULT_API_TOKEN } });
              if (response.ok) return await response.blob();
              return null;
         } catch(e) { return null; }
