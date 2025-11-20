@@ -53,10 +53,11 @@ const defaultDashboardWidgets: DashboardWidget[] = [
 ];
 
 const STORAGE_KEY = 'sie_db_v3';
-const CURRENT_VERSION = '3.0.2'; // Versão incrementada para forçar refresh lógico
+const CURRENT_VERSION = '3.0.2'; 
 
-// CONFIGURAÇÕES PADRÃO DA VPS
-const DEFAULT_API_URL = 'https://sie.jennyai.space';
+// EM PRODUÇÃO (Nginx Proxy): Deixar vazio para usar caminho relativo "/api"
+// Isso garante que a requisição vá para o mesmo domínio e porta 80/443, onde o Nginx intercepta.
+const DEFAULT_API_URL = ''; 
 const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
 
 interface DatabaseSchema {
@@ -93,11 +94,12 @@ class DbService {
         if (stored) {
             this.data = JSON.parse(stored);
             
-            // AUTO-CONFIGURAÇÃO: Se as configurações estiverem vazias, aplica os padrões da VPS
-            // Isso garante que usuários existentes recebam a configuração sem perder dados
+            // AUTO-CONFIGURAÇÃO:
+            // Se a URL estiver configurada incorretamente (com porta 3000 direta) ou vazia, reseta para padrão
             if (this.data && this.data.dbConfig) {
                 let changed = false;
-                if (!this.data.dbConfig.apiUrl) {
+                // Força vazio se estiver apontando para porta 3000 diretamente (bloqueado por CORS/Firewall geralmente)
+                if (this.data.dbConfig.apiUrl && this.data.dbConfig.apiUrl.includes(':3000')) {
                     this.data.dbConfig.apiUrl = DEFAULT_API_URL;
                     changed = true;
                 }
@@ -130,19 +132,18 @@ class DbService {
     
     // Determina a URL da API para comunicação com a VPS
     private getApiUrl(): string {
-        // 1. Se o usuário configurou manualmente, usa o valor
-        if (this.data?.dbConfig?.apiUrl && this.data.dbConfig.apiUrl.trim() !== '') {
-            return this.data.dbConfig.apiUrl;
+        // Se o usuário digitou algo no painel, usa.
+        // Se estiver vazio (padrão), retorna string vazia para o browser montar "/api/..."
+        if (this.data?.dbConfig?.apiUrl) {
+            // Remove barra final se existir para evitar //api
+            return this.data.dbConfig.apiUrl.replace(/\/$/, '');
         }
-        
-        // 2. Padrão: usa a constante definida
-        return DEFAULT_API_URL;
+        return '';
     }
 
     private getApiHeaders(): HeadersInit {
         return {
             'Content-Type': 'application/json',
-            // Envia o token configurado no painel
             'x-sync-token': this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN
         };
     }
@@ -163,7 +164,6 @@ class DbService {
             timelineEvents: initialTimelineEvents,
             dashboardData: {},
             dashboardWidgets: defaultDashboardWidgets,
-            // CONFIGURAÇÃO PADRÃO APLICADA AQUI
             dbConfig: { 
                 apiUrl: DEFAULT_API_URL, 
                 apiToken: DEFAULT_API_TOKEN, 
@@ -480,7 +480,6 @@ class DbService {
         await this.ensureReady();
         let cat = this.data!.dataSources.find(c => c.name.toLowerCase() === suggested.category.toLowerCase());
         if (!cat) {
-            // Fallback or create new? For now put in first or create 'Sugestões'
             cat = this.data!.dataSources[0];
         }
         cat.sources.push({
@@ -496,11 +495,9 @@ class DbService {
         this.syncData();
     }
     async validateAllDataSources() {
-        // Simulate validation
         await this.ensureReady();
         for (const cat of this.data!.dataSources) {
             for (const src of cat.sources) {
-                // Basic check: simulate random error if not gov.br
                 if (!src.url.includes('gov.br') && Math.random() > 0.8) {
                     src.status = 'Com Erro';
                 } else {
@@ -522,7 +519,6 @@ class DbService {
     }
     async runAiAutomationTask() {
         await this.ensureReady();
-        // Simulate task
         this.data!.aiAutomationSettings.lastRun = new Date().toISOString();
         this.data!.aiAutomationSettings.lastRunResult = 'Executado com sucesso. 0 novas fontes.';
         await this.saveToStorage();
@@ -540,12 +536,9 @@ class DbService {
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
         await this.ensureReady();
-        // Cache check
         if (!refresh && this.data!.dashboardData[municipality]) {
             return this.data!.dashboardData[municipality];
         }
-        
-        // Generate new data
         const newData = await generateFullDashboardData(municipality);
         this.data!.dashboardData[municipality] = newData;
         await this.saveToStorage();
@@ -687,7 +680,6 @@ class DbService {
     // --- System ---
     async getDbConfig(): Promise<DbConfig> { 
         await this.ensureReady(); 
-        // Force status update based on recent checks logic (simplified here)
         return this.data!.dbConfig; 
     }
     
@@ -696,7 +688,6 @@ class DbService {
         this.data!.dbConfig = config;
         this.logActivity('AUDIT', `Configuração de DB alterada`, username);
         await this.saveToStorage();
-        // Immediately try to connect
         this.syncData();
     }
 
@@ -780,7 +771,6 @@ class DbService {
 
     async checkForRemoteUpdates() {
         try {
-            // Verifica o arquivo package.json no repositório principal
             const response = await fetch('https://raw.githubusercontent.com/EduG2025/SIE-SYSTEM-PROMPT-3.0-COMPLETO/main/package.json');
             if (!response.ok) throw new Error("Falha ao contactar GitHub");
             
@@ -800,11 +790,8 @@ class DbService {
 
     // --- API Sync & Remote Commands ---
 
-    // Sincronização de Dados (Push)
     private async syncData() {
-        // If no token or URL, skip
         if (!this.data?.dbConfig?.apiToken) return;
-
         const apiUrl = this.getApiUrl();
 
         try {
@@ -813,8 +800,10 @@ class DbService {
 
             this.data.dbConfig.status = 'Sincronizando';
             
-            // We send the full data blob. In a real app, use diffs.
-            const response = await fetch(`${apiUrl}/api/data`, {
+            // Use relative path if configured as default, or absolute if customized
+            const endpoint = apiUrl ? `${apiUrl}/api/data` : '/api/data';
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: this.getApiHeaders(),
                 body: JSON.stringify(this.data),
@@ -828,23 +817,19 @@ class DbService {
                 this.data.dbConfig.lastSync = new Date().toISOString();
             } else {
                 this.data.dbConfig.status = 'Erro';
-                console.warn('Sync failed:', await response.text());
             }
         } catch (e) {
             this.data.dbConfig.status = 'Erro';
-            console.warn('Sync network error:', e);
         }
         await this.saveToStorage();
     }
 
-    // Comando Remoto (Execução no Servidor) - REALMENTE EXECUTA, SEM MOCKS
     async executeServerCommand(cmd: string): Promise<{ success: boolean, output: string }> {
         await this.ensureReady();
         
         const apiUrl = this.getApiUrl();
         const token = this.data?.dbConfig?.apiToken;
 
-        // Validação: Se não houver token, não adianta tentar
         if (!token) {
             return { 
                 success: false, 
@@ -852,22 +837,35 @@ class DbService {
             };
         }
 
+        const endpoint = apiUrl ? `${apiUrl}/api/execute` : '/api/execute';
+
         try {
-            // Chamada Real via Fetch
-            const response = await fetch(`${apiUrl}/api/execute`, {
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: this.getApiHeaders(),
                 body: JSON.stringify({ command: cmd })
             });
             
+            // CRITICAL: Check for HTML response (CloudPanel Error page)
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") === -1) {
+                 const text = await response.text();
+                 if (text.includes("<!DOCTYPE html")) {
+                     return {
+                         success: false,
+                         output: "ERRO CRÍTICO: O servidor Nginx devolveu a página do site em vez da API. \n\nSOLUÇÃO: Vá no CloudPanel > Vhost e adicione o bloco 'location /api' para proxy reverso na porta 3000."
+                     };
+                 }
+                 return { success: false, output: `Erro desconhecido: ${text.substring(0, 100)}` };
+            }
+
             const result = await response.json();
-            return result; // Retorna o JSON real do servidor (sucesso ou erro)
+            return result;
 
         } catch (e) {
-             // Erro de rede (ex: servidor offline, porta bloqueada)
              return { 
                  success: false, 
-                 output: `FALHA CRÍTICA DE CONEXÃO: ${(e as Error).message}. Verifique se o servidor Node.js está rodando na porta 3000.` 
+                 output: `FALHA DE CONEXÃO: ${(e as Error).message}. Verifique se o servidor backend está rodando (pm2 list).` 
              };
         }
     }
@@ -875,8 +873,9 @@ class DbService {
     async getRemoteLogs(): Promise<Blob | null> {
         await this.ensureReady();
         const apiUrl = this.getApiUrl();
+        const endpoint = apiUrl ? `${apiUrl}/api/logs` : '/api/logs';
         try {
-             const response = await fetch(`${apiUrl}/api/logs`, {
+             const response = await fetch(endpoint, {
                 headers: this.getApiHeaders()
              });
              if (response.ok) return await response.blob();
