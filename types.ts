@@ -4,6 +4,7 @@ export type ViewType = string;
 export type AdminViewType = 
   | 'dashboard'
   | 'users'
+  | 'plans'
   | 'system'
   | 'modules'
   | 'data'
@@ -190,6 +191,12 @@ export interface Lawsuit {
   description?: string;
 }
 
+export interface EmployeeAlert {
+    type: 'Nepotismo' | 'Cargo Crítico' | 'Acúmulo de Cargos' | 'Antecedentes';
+    severity: 'Crítico' | 'Alto' | 'Médio' | 'Baixo';
+    description: string;
+}
+
 export interface Employee {
   id: number;
   name: string;
@@ -198,7 +205,9 @@ export interface Employee {
   appointedBy: string;
   startDate: string;
   riskScore: number; // 0-10
-  riskAnalysis: string;
+  riskAnalysis: string; // Resumo curto
+  investigationReport?: string; // Relatório detalhado gerado sob demanda
+  alerts?: EmployeeAlert[]; // Alertas automáticos
 }
 
 // --- Tipos Expandidos para Social Media ---
@@ -303,6 +312,22 @@ export interface DbConfig {
   user?: string;
   password?: string;
   database?: string;
+}
+
+export interface ThemeConfig {
+  primary: string;
+  secondary: string;
+  accent: string;
+  text: string;
+  blue: string;
+}
+
+export interface HomepageConfig {
+  active: boolean;
+  title: string;
+  subtitle: string;
+  heroImageUrl: string;
+  logoUrl: string;
 }
 
 export interface DataSource {
@@ -547,4 +572,28 @@ export interface InvestigationReport {
     media?: InvestigativeMedia[];
     detectedProfiles?: InvestigativeProfile[];
     followUpActions: string[];
+}
+
+// --- Tipos do Auto-Updater ---
+export type UpdateStageType = 
+    | 'init' 
+    | 'analysis' 
+    | 'detection' 
+    | 'correction' 
+    | 'rewrite' 
+    | 'standardization' 
+    | 'validation' 
+    | 'report';
+
+export interface UpdateStage {
+    id: UpdateStageType;
+    label: string;
+    status: 'pending' | 'running' | 'completed' | 'error';
+    progress: number;
+}
+
+export interface UpdateLog {
+    timestamp: string;
+    message: string;
+    type: 'info' | 'success' | 'warning' | 'error';
 }

@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { Module } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { dbService } from '../services/dbService';
+
+const { useLocation, Link } = ReactRouterDOM as any;
 
 interface HeaderProps {
     modules: Module[];

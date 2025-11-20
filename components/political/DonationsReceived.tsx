@@ -1,7 +1,10 @@
+
 import React from 'react';
-import { Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { Donation, RiskLevel } from '../../types';
 import RiskIndicator from './RiskIndicator';
+
+const { Link } = ReactRouterDOM as any;
 
 interface DonationsReceivedProps {
     donations: Donation[];

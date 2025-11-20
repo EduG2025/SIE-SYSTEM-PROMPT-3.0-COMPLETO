@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import AdminSidebar from './AdminSidebar';
 import AdminDashboard from './AdminDashboard';
 import UserManagement from './UserManagement';
@@ -12,6 +12,8 @@ import DataSourcesManagement from './DataSourcesManagement';
 import { adminViewTitles } from '../../constants';
 import type { AdminViewType, User } from '../../types';
 import Toast from '../common/Toast';
+
+const { Routes, Route, Navigate, useLocation } = ReactRouterDOM as any;
 
 interface AdminLayoutProps {
   onLogout: () => void;

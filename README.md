@@ -1,20 +1,95 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# S.I.E. 3.1.0 - Sistema de Investigação Estratégica
+## Documentação Técnica e Manual do Administrador
 
-This contains everything you need to run your app locally.
+### 1. Visão Geral da Arquitetura
+O S.I.E. opera em uma arquitetura **Híbrida (SPA + API)** otimizada para segurança e desempenho em ambientes VPS (CloudPanel).
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ZCoadl_ALp7vbwNEtMu-RnkmzFC2Szpj
+*   **Frontend:** React 18 + Vite + TypeScript (Pasta `/src`). Compilado para arquivos estáticos na pasta `/dist`.
+*   **Backend:** Node.js + Express (Arquivo `server.cjs`). Roda na porta `3000` via PM2.
+*   **Banco de Dados:** MySQL 8.0+. O sistema utiliza um padrão *NoSQL-over-SQL*, armazenando o estado complexo do sistema em colunas JSON para flexibilidade máxima.
+*   **Proxy:** Nginx (Configurado no CloudPanel) redireciona chamadas de `/api/*` para `localhost:3000`.
 
-## Run Locally
+---
 
-**Prerequisites:**  Node.js
+### 2. Scripts de Infraestrutura (VPS)
 
+Estes scripts localizados na raiz do projeto automatizam a manutenção do servidor.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+#### `setup.sh` (Instalação e Recuperação)
+**Quando usar:** Na primeira instalação ou se o servidor "quebrar" totalmente.
+**O que ele faz:**
+1.  Instala dependências do Linux e Node.js (PM2, MySQL drivers).
+2.  Cria/Recria o arquivo `.env` com as credenciais do banco.
+3.  Gera o arquivo `server.cjs` (Backend) limpo e sem erros.
+4.  Configura o PM2 para reiniciar o servidor automaticamente se a VPS reiniciar.
+
+**Comando:**
+```bash
+./setup.sh
+```
+
+#### `deploy.sh` (Atualização Diária)
+**Quando usar:** Sempre que você fizer alterações no código e subir para o GitHub.
+**O que ele faz:**
+1.  `git pull`: Baixa as novidades do repositório.
+2.  `npm install`: Atualiza bibliotecas.
+3.  `npm run build`: Reconstrói o site (Frontend).
+4.  `pm2 restart`: Reinicia o backend.
+5.  **Correção de Permissões:** Garante que o Nginx consiga ler os arquivos.
+
+**Comando:**
+```bash
+./deploy.sh
+```
+
+---
+
+### 3. Fluxo de Trabalho Git (Atualização do Sistema)
+
+Para aplicar mudanças feitas localmente ou geradas pela IA:
+
+**Passo 1: Salvar e Enviar (Na sua máquina/IDE)**
+```bash
+# 1. Adicionar todos os arquivos modificados
+git add .
+
+# 2. Criar um pacote de atualização (Commit)
+git commit -m "Descrição da atualização (ex: Novo módulo de RH)"
+
+# 3. Enviar para a nuvem
+git push origin main
+```
+
+**Passo 2: Aplicar na VPS**
+Você tem duas opções:
+1.  **Via Painel:** Acesse *Admin > Sistema > Atualizações* e clique em **"Atualizar VPS"**.
+2.  **Via Terminal:** Acesse via SSH e rode `./deploy.sh`.
+
+---
+
+### 4. Configuração de Banco de Dados e .env
+As credenciais do banco de dados são gerenciadas pelo `setup.sh`. Se precisar alterá-las manualmente:
+
+1.  Edite o `setup.sh` com as novas senhas.
+2.  Rode `./setup.sh` novamente.
+
+**Estrutura do Banco (Tabela Principal):**
+Tabela: `sie_system_state`
+Coluna: `data` (JSON) -> Contém todo o estado da aplicação (Usuários, Configurações, Módulos).
+
+---
+
+### 5. Solução de Problemas Comuns
+
+**Erro: "Unexpected token <" ou Tela Branca**
+*   **Causa:** O Nginx não está redirecionando a API corretamente.
+*   **Solução:** Verifique o Vhost no CloudPanel. O bloco `location /api` deve estar presente e apontando para `http://127.0.0.1:3000`. Rode `./deploy.sh` para corrigir permissões.
+
+**Erro: Backend Offline no Painel**
+*   **Causa:** O servidor Node.js parou.
+*   **Solução:** Rode `pm2 list` no terminal. Se estiver vermelho ou não existir, rode `./setup.sh`.
+
+**Erro: Permissão Negada (403)**
+*   **Causa:** Arquivos pertencem ao `root` e não ao usuário do site.
+*   **Solução:** O `./deploy.sh` corrige isso automaticamente no final. Execute-o.

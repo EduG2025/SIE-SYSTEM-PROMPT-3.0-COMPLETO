@@ -1,14 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
-import type { ApiKey, DbConfig, User } from '../../types';
+import type { ApiKey, DbConfig, User, ThemeConfig, HomepageConfig } from '../../types';
 import { dbService } from '../../services/dbService';
-import { validateApiKey } from '../../services/geminiService'; // Import validation service
+import { validateApiKey } from '../../services/geminiService';
 import Modal from '../common/Modal';
 import ToggleSwitch from '../common/ToggleSwitch';
 import ApiKeyFormModal from './system/ApiKeyFormModal';
+import SystemAutoUpdater from './system/SystemAutoUpdater';
+
+type SystemTab = 'infrastructure' | 'ai' | 'appearance' | 'homepage' | 'autoupdate';
 
 const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => void; onCancel: () => void; }> = ({ config, onSave, onCancel }) => {
     const [formData, setFormData] = useState(config);
+    const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -17,6 +21,22 @@ const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => v
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         onSave(formData);
+    };
+
+    const handleTestConnection = async () => {
+        setTestStatus({ type: 'loading', message: 'Verificando conectividade com a API e Banco de Dados...' });
+        
+        try {
+            const result = await dbService.testConnection();
+            
+            if (result.status === 'Conectado') {
+                setTestStatus({ type: 'success', message: result.details });
+            } else {
+                setTestStatus({ type: 'error', message: result.details });
+            }
+        } catch (e) {
+            setTestStatus({ type: 'error', message: 'Erro fatal ao tentar comunicar com o servidor.' });
+        }
     };
 
     return (
@@ -78,6 +98,35 @@ const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => v
                     </div>
                 </div>
             </div>
+
+            <div className="bg-brand-primary/50 p-3 rounded border border-brand-accent/50 flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-white">Diagnóstico de Rede</span>
+                    <button 
+                        type="button" 
+                        onClick={handleTestConnection}
+                        disabled={testStatus.type === 'loading'}
+                        className="text-xs bg-brand-accent hover:bg-brand-light text-white font-bold py-1.5 px-3 rounded transition-colors flex items-center disabled:opacity-50"
+                    >
+                        {testStatus.type === 'loading' ? (
+                            <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                                Testando...
+                            </>
+                        ) : (
+                            'Testar Conexão (Ping)'
+                        )}
+                    </button>
+                </div>
+                {testStatus.type !== 'idle' && (
+                    <div className={`text-xs p-2 rounded ${
+                        testStatus.type === 'success' ? 'bg-green-500/20 text-green-400' : 
+                        testStatus.type === 'error' ? 'bg-red-500/20 text-red-400' : 'text-brand-light'
+                    }`}>
+                        {testStatus.message}
+                    </div>
+                )}
+            </div>
             
              <div className="flex justify-end gap-4 mt-6">
                 <button type="button" onClick={onCancel} className="bg-brand-accent text-white px-4 py-2 rounded-lg">Cancelar</button>
@@ -93,22 +142,28 @@ interface SystemSettingsProps {
 }
 
 const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser }) => {
+    const [activeTab, setActiveTab] = useState<SystemTab>('infrastructure');
     const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
     const [dbConfig, setDbConfig] = useState<DbConfig | null>(null);
+    const [themeConfig, setThemeConfig] = useState<ThemeConfig | null>(null);
+    const [homepageConfig, setHomepageConfig] = useState<HomepageConfig | null>(null);
+
     const [isDbModalOpen, setIsDbModalOpen] = useState(false);
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState('');
     const [isValidatingPool, setIsValidatingPool] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
 
     const fetchData = async () => {
         dbService.getSystemPrompt().then(setSystemPrompt);
         dbService.getApiKeys().then(setApiKeys);
         dbService.getDbConfig().then(setDbConfig);
+        dbService.getTheme().then(setThemeConfig);
+        dbService.getHomepageConfig().then(setHomepageConfig);
     };
 
     useEffect(() => {
         fetchData();
-        // Atualiza estatísticas de uso a cada 10 segundos e status da conexão
         const interval = setInterval(() => {
              dbService.getApiKeys().then(setApiKeys);
              dbService.getDbConfig().then(setDbConfig);
@@ -116,6 +171,28 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         return () => clearInterval(interval);
     }, []);
     
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'logo' | 'hero') => {
+        if (e.target.files && e.target.files[0]) {
+            setIsUploading(true);
+            try {
+                const file = e.target.files[0];
+                const url = await dbService.uploadFile(file);
+                
+                if (target === 'logo' && homepageConfig) {
+                    setHomepageConfig({ ...homepageConfig, logoUrl: url });
+                    showToast('Logo enviado com sucesso!', 'success');
+                } else if (target === 'hero' && homepageConfig) {
+                    setHomepageConfig({ ...homepageConfig, heroImageUrl: url });
+                    showToast('Imagem de capa enviada com sucesso!', 'success');
+                }
+            } catch (error) {
+                showToast('Erro ao fazer upload da imagem.', 'error');
+            } finally {
+                setIsUploading(false);
+            }
+        }
+    };
+
     const handleSaveNewApiKey = async (key: string) => {
         try {
             await dbService.addApiKey(key, currentUser.username);
@@ -157,8 +234,6 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         let invalidCount = 0;
 
         for (const key of apiKeys) {
-            // Pula validação de chaves já inativas manualmente, a menos que queira revalidar tudo
-            // Aqui validamos tudo para garantir saúde
             const isValid = await validateApiKey(key.key);
             const newStatus = isValid ? 'Ativa' : 'Inativa';
             
@@ -179,10 +254,6 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
             showToast(`Validação concluída: Todas as ${activeCount} chaves estão saudáveis.`, 'success');
         }
     };
-
-    const handleGenerateNewKey = () => {
-        window.open('https://aistudio.google.com/app/apikey', '_blank');
-    };
     
     const handleSaveDbConfig = async (config: DbConfig) => {
         await dbService.saveDbConfig(config, currentUser.username);
@@ -197,12 +268,26 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         showToast('System prompt da IA salvo com sucesso!', 'success');
     }
 
-    if (!dbConfig) {
+    const handleSaveTheme = async () => {
+        if(themeConfig) {
+            await dbService.saveTheme(themeConfig, currentUser.username);
+            showToast('Tema visual atualizado com sucesso!', 'success');
+        }
+    }
+
+    const handleSaveHomepage = async () => {
+        if(homepageConfig) {
+            await dbService.saveHomepageConfig(homepageConfig, currentUser.username);
+            showToast('Configurações da Homepage atualizadas!', 'success');
+        }
+    }
+
+    if (!dbConfig || !themeConfig || !homepageConfig) {
         return <div>Carregando configurações...</div>;
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6">
              {isDbModalOpen && (
                 <Modal title="Configurações de Infraestrutura" onClose={() => setIsDbModalOpen(false)}>
                     <DbConfigForm config={dbConfig} onSave={handleSaveDbConfig} onCancel={() => setIsDbModalOpen(false)} />
@@ -214,119 +299,195 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                     onAddKey={handleSaveNewApiKey}
                 />
              )}
+            
+            {/* Navigation Tabs */}
+            <div className="flex space-x-2 border-b border-brand-accent pb-1 overflow-x-auto custom-scrollbar">
+                {[
+                    { id: 'infrastructure', label: 'Infraestrutura' },
+                    { id: 'autoupdate', label: 'Auto-Updater (IA)' },
+                    { id: 'ai', label: 'Inteligência Artificial' },
+                    { id: 'appearance', label: 'Tema & Aparência' },
+                    { id: 'homepage', label: 'Homepage & Portal' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id as SystemTab)}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${activeTab === tab.id ? 'bg-brand-secondary text-white border-t border-x border-brand-accent' : 'text-brand-light hover:text-white hover:bg-brand-secondary/50'}`}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
 
-            <div className="bg-brand-secondary p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold mb-4">Configurações de Conexão e Inteligência</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex justify-between items-center mb-4">
-                            <h4 className="font-bold text-lg">Pool de Chaves Gemini (Load Balancing)</h4>
-                            <span className="bg-brand-blue text-xs font-bold px-2 py-1 rounded text-white">Multitarefa Ativo</span>
-                        </div>
-                        <p className="text-xs text-brand-light mb-3">O sistema rotaciona automaticamente as chaves ativas para distribuir a carga.</p>
-                        
-                        {/* Auto-Generation / Validation Toolbar */}
-                        <div className="flex gap-2 mb-3">
-                            <button 
-                                onClick={handleGenerateNewKey}
-                                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1.5 px-2 rounded transition-colors flex items-center justify-center"
-                                title="Abrir Google AI Studio para criar chave"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                Gerar Chave
-                            </button>
-                            <button 
-                                onClick={handleValidatePool}
-                                disabled={isValidatingPool}
-                                className="flex-1 bg-brand-accent hover:bg-brand-light text-white text-xs font-bold py-1.5 px-2 rounded transition-colors flex items-center justify-center disabled:opacity-50"
-                                title="Verificar quais chaves estão funcionando"
-                            >
-                                {isValidatingPool ? (
-                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                )}
-                                Validar Pool
-                            </button>
-                        </div>
-
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                            {apiKeys.map(key => (
-                                <div key={key.id} className={`text-sm p-3 bg-brand-primary rounded flex flex-col gap-2 border-l-4 ${key.status === 'Ativa' ? 'border-brand-green' : 'border-brand-red'}`}>
-                                    <div className="flex justify-between items-center">
-                                        <span className="font-mono text-brand-light font-bold">...{key.key.slice(-8)}</span>
-                                        <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded border ${key.type === 'System' ? 'border-brand-blue text-brand-blue' : 'border-brand-light text-brand-light'}`}>
-                                            {key.type === 'System' ? 'Padrão' : 'Custom'}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs text-brand-light">
-                                         <span>Uso: <strong>{key.usageCount}</strong> reqs</span>
-                                         <span>Último: {key.lastUsed ? new Date(key.lastUsed).toLocaleTimeString() : '-'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between pt-2 border-t border-brand-accent mt-1">
-                                        <div className="flex items-center space-x-2">
+            {/* Infrastructure Tab */}
+            {activeTab === 'infrastructure' && (
+                <div className="bg-brand-secondary p-6 rounded-b-lg rounded-tr-lg shadow-lg animate-fade-in-up">
+                    <h3 className="text-xl font-semibold mb-4">Conectividade e Servidor</h3>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 className="font-bold text-lg mb-4">Pool de Chaves Gemini</h4>
+                            <div className="flex gap-2 mb-3">
+                                <button onClick={handleValidatePool} disabled={isValidatingPool} className="flex-1 bg-brand-accent hover:bg-brand-light text-white text-xs font-bold py-1.5 px-2 rounded transition-colors disabled:opacity-50">
+                                    {isValidatingPool ? 'Validando...' : 'Validar Pool'}
+                                </button>
+                            </div>
+                            <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                                {apiKeys.map(key => (
+                                    <div key={key.id} className={`text-sm p-3 bg-brand-primary rounded flex flex-col gap-2 border-l-4 ${key.status === 'Ativa' ? 'border-brand-green' : 'border-brand-red'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-mono text-brand-light">...{key.key.slice(-8)}</span>
                                             <span className={`text-xs font-bold ${key.status === 'Ativa' ? 'text-brand-green' : 'text-brand-red'}`}>{key.status}</span>
-                                            <ToggleSwitch checked={key.status === 'Ativa'} onChange={() => handleToggleApiKeyStatus(key.id)} />
                                         </div>
-                                        {key.type !== 'System' && (
-                                            <button onClick={() => handleRemoveApiKey(key.id)} className="text-brand-light hover:text-brand-red transition-colors" title="Remover chave">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </button>
-                                        )}
+                                        <div className="flex items-center justify-between pt-2 border-t border-brand-accent mt-1">
+                                            <ToggleSwitch checked={key.status === 'Ativa'} onChange={() => handleToggleApiKeyStatus(key.id)} />
+                                            {key.type !== 'System' && (
+                                                <button onClick={() => handleRemoveApiKey(key.id)} className="text-brand-light hover:text-brand-red">Remover</button>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
+                            <button onClick={() => setIsApiKeyModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg w-full">
+                                + Adicionar Chave
+                            </button>
                         </div>
-                        <button onClick={() => setIsApiKeyModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg transition-colors w-full">
-                            + Adicionar Chave ao Pool
-                        </button>
+                        <div>
+                            <h4 className="font-bold text-lg mb-4">Status do Backend</h4>
+                            <div className="space-y-3 text-sm bg-brand-primary p-4 rounded border border-brand-accent/30">
+                                <p><strong>Status:</strong> {dbConfig.status}</p>
+                                <p><strong>Endpoint:</strong> {dbConfig.apiUrl || '<Interno>'}</p>
+                                <p><strong>Host DB:</strong> {dbConfig.host}</p>
+                                <button onClick={() => setIsDbModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg w-full">
+                                    Configurar Conexão
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <h4 className="font-bold text-lg mb-4">Infraestrutura & Sincronização</h4>
-                        <div className="space-y-3 text-sm bg-brand-primary p-4 rounded border border-brand-accent/30">
-                            <div className="flex justify-between items-center">
-                                <strong>Status Backend:</strong>
-                                <span className={`font-bold px-2 py-1 rounded text-xs ${dbConfig.status === 'Conectado' ? 'bg-green-500/20 text-green-400' : dbConfig.status === 'Erro' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400' }`}>
-                                    {dbConfig.status || 'Não Configurado'}
-                                </span>
+                </div>
+            )}
+
+            {/* Auto-Update Tab (NEW) */}
+            {activeTab === 'autoupdate' && (
+                <div className="animate-fade-in-up">
+                    <SystemAutoUpdater />
+                </div>
+            )}
+
+            {/* AI Tab */}
+            {activeTab === 'ai' && (
+                <div className="bg-brand-secondary p-6 rounded-b-lg rounded-tr-lg shadow-lg animate-fade-in-up">
+                    <h3 className="text-xl font-semibold mb-4">Configuração da IA (System Prompt)</h3>
+                    <textarea 
+                        value={systemPrompt}
+                        onChange={(e) => setSystemPrompt(e.target.value)}
+                        className="w-full h-80 bg-brand-primary p-3 rounded border border-brand-accent font-mono text-sm leading-relaxed focus:ring-brand-blue focus:border-brand-blue"
+                    />
+                     <button onClick={handleSavePrompt} className="mt-4 bg-brand-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                        Salvar Regras da IA
+                    </button>
+                </div>
+            )}
+
+            {/* Appearance Tab */}
+            {activeTab === 'appearance' && (
+                <div className="bg-brand-secondary p-6 rounded-b-lg rounded-tr-lg shadow-lg animate-fade-in-up">
+                    <h3 className="text-xl font-semibold mb-4">Personalização do Tema</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-brand-light mb-1">Cor Primária (Fundo)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.primary} onChange={(e) => setThemeConfig({...themeConfig, primary: e.target.value})} className="h-10 w-16 bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={themeConfig.primary} onChange={(e) => setThemeConfig({...themeConfig, primary: e.target.value})} className="flex-1 bg-brand-primary border border-brand-accent rounded px-3 font-mono" />
+                                </div>
                             </div>
-                            <p className="truncate" title={dbConfig.apiUrl}>
-                                <strong>Endpoint API:</strong> {dbConfig.apiUrl ? dbConfig.apiUrl : '<Interno>'}
-                            </p>
-                            <div className="mt-2 border-t border-brand-accent/30 pt-2">
-                                <p className="text-xs font-bold text-brand-light mb-1">Configuração MySQL (Alvo):</p>
-                                <p><strong>Host:</strong> {dbConfig.host || '-'}</p>
-                                <p><strong>Banco:</strong> {dbConfig.database || '-'}</p>
-                                <p><strong>Usuário:</strong> {dbConfig.user || '-'}</p>
+                            <div>
+                                <label className="block text-sm font-bold text-brand-light mb-1">Cor Secundária (Cards/Nav)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.secondary} onChange={(e) => setThemeConfig({...themeConfig, secondary: e.target.value})} className="h-10 w-16 bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={themeConfig.secondary} onChange={(e) => setThemeConfig({...themeConfig, secondary: e.target.value})} className="flex-1 bg-brand-primary border border-brand-accent rounded px-3 font-mono" />
+                                </div>
                             </div>
-                            <p>
-                                <strong>Último Sync:</strong> {dbConfig.lastSync ? new Date(dbConfig.lastSync).toLocaleString('pt-BR') : 'Nunca'}
-                            </p>
-                            <p className="text-xs text-brand-light italic mt-2">
-                                O sistema utiliza estas credenciais para gerar instaladores SQL e backups compatíveis com sua VPS.
-                            </p>
+                            <div>
+                                <label className="block text-sm font-bold text-brand-light mb-1">Cor de Acento (Bordas)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.accent} onChange={(e) => setThemeConfig({...themeConfig, accent: e.target.value})} className="h-10 w-16 bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={themeConfig.accent} onChange={(e) => setThemeConfig({...themeConfig, accent: e.target.value})} className="flex-1 bg-brand-primary border border-brand-accent rounded px-3 font-mono" />
+                                </div>
+                            </div>
                         </div>
-                        <button onClick={() => setIsDbModalOpen(true)} className="mt-4 text-sm bg-brand-accent hover:bg-brand-blue text-white font-bold py-2 px-4 rounded-lg transition-colors w-full">
-                            Configurar Conexão
+                         <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-brand-light mb-1">Cor de Texto Principal</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.text} onChange={(e) => setThemeConfig({...themeConfig, text: e.target.value})} className="h-10 w-16 bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={themeConfig.text} onChange={(e) => setThemeConfig({...themeConfig, text: e.target.value})} className="flex-1 bg-brand-primary border border-brand-accent rounded px-3 font-mono" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-brand-light mb-1">Cor de Destaque (Botões/Links)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={themeConfig.blue} onChange={(e) => setThemeConfig({...themeConfig, blue: e.target.value})} className="h-10 w-16 bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={themeConfig.blue} onChange={(e) => setThemeConfig({...themeConfig, blue: e.target.value})} className="flex-1 bg-brand-primary border border-brand-accent rounded px-3 font-mono" />
+                                </div>
+                            </div>
+                            <div className="pt-4">
+                                 <button onClick={handleSaveTheme} className="bg-brand-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors w-full">
+                                    Aplicar e Salvar Tema
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Homepage Tab */}
+            {activeTab === 'homepage' && (
+                <div className="bg-brand-secondary p-6 rounded-b-lg rounded-tr-lg shadow-lg animate-fade-in-up">
+                    <h3 className="text-xl font-semibold mb-4">Configuração da Página Inicial</h3>
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between bg-brand-primary p-4 rounded-lg border border-brand-accent">
+                            <label className="font-bold text-white">Homepage Ativa</label>
+                            <ToggleSwitch checked={homepageConfig.active} onChange={(c) => setHomepageConfig({...homepageConfig, active: c})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-brand-light mb-1">Título do Portal</label>
+                            <input type="text" value={homepageConfig.title} onChange={(e) => setHomepageConfig({...homepageConfig, title: e.target.value})} className="w-full bg-brand-primary border border-brand-accent rounded p-2 text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-brand-light mb-1">Subtítulo / Slogan</label>
+                            <input type="text" value={homepageConfig.subtitle} onChange={(e) => setHomepageConfig({...homepageConfig, subtitle: e.target.value})} className="w-full bg-brand-primary border border-brand-accent rounded p-2 text-white" />
+                        </div>
+                         <div>
+                            <label className="block text-sm font-bold text-brand-light mb-1">Logotipo</label>
+                            <div className="flex gap-4 items-center">
+                                {homepageConfig.logoUrl && <img src={homepageConfig.logoUrl} alt="Logo" className="h-10 w-10 object-contain" />}
+                                <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    onChange={(e) => handleFileUpload(e, 'logo')}
+                                    className="text-sm text-brand-light file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-blue file:text-white hover:file:bg-blue-600"
+                                />
+                            </div>
+                        </div>
+                         <div>
+                            <label className="block text-sm font-bold text-brand-light mb-1">Imagem de Capa (Hero)</label>
+                            <div className="flex gap-4 items-center">
+                                 {homepageConfig.heroImageUrl && <img src={homepageConfig.heroImageUrl} alt="Hero" className="h-10 w-16 object-cover rounded" />}
+                                <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    onChange={(e) => handleFileUpload(e, 'hero')}
+                                    className="text-sm text-brand-light file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-blue file:text-white hover:file:bg-blue-600"
+                                />
+                            </div>
+                        </div>
+                         <button onClick={handleSaveHomepage} disabled={isUploading} className="bg-brand-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50">
+                            {isUploading ? 'Enviando...' : 'Salvar Configurações'}
                         </button>
                     </div>
                 </div>
-            </div>
-
-             <div className="bg-brand-secondary p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold mb-4">Configuração da IA (System Prompt)</h3>
-                <p className="text-sm text-brand-light mb-4">Esta é a diretriz principal que a IA seguirá. Edite com cuidado.</p>
-                <textarea 
-                    value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
-                    className="w-full h-80 bg-brand-primary p-3 rounded border border-brand-accent font-mono text-sm leading-relaxed focus:ring-brand-blue focus:border-brand-blue"
-                />
-                 <button onClick={handleSavePrompt} className="mt-4 bg-brand-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                    Salvar Regras da IA
-                </button>
-            </div>
+            )}
         </div>
     );
 };

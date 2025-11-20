@@ -1,0 +1,42 @@
+const moduleService = require('../services/moduleService');
+
+const ModuleController = {
+    getModules: async (req, res) => {
+        try {
+            const modules = await moduleService.getAll();
+            res.json(modules);
+        } catch (error) {
+            res.status(500).json({ message: 'Erro ao buscar módulos', error: error.message });
+        }
+    },
+
+    updateModule: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const updated = await moduleService.update(id, req.body);
+            res.json(updated);
+        } catch (error) {
+            res.status(400).json({ message: 'Erro ao atualizar módulo', error: error.message });
+        }
+    },
+
+    createModule: async (req, res) => {
+        try {
+            const created = await moduleService.create(req.body);
+            res.status(201).json(created);
+        } catch (error) {
+            res.status(400).json({ message: 'Erro ao criar módulo', error: error.message });
+        }
+    },
+
+    deleteModule: async (req, res) => {
+        try {
+            await moduleService.delete(req.params.id);
+            res.json({ message: 'Módulo removido com sucesso' });
+        } catch (error) {
+            res.status(400).json({ message: 'Erro ao remover módulo', error: error.message });
+        }
+    }
+};
+
+module.exports = { ModuleController };

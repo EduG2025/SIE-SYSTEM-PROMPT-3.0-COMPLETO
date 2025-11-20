@@ -4,11 +4,10 @@ import { initialModules } from '../data/mock/modules';
 import { initialApiKeys } from '../data/mock/apiKeys';
 import { initialDataSources } from '../data/mock/dataSources';
 import { initialTimelineEvents } from '../data/mock/timelineData';
-// Import types
 import type {
   User, Module, ApiKey, DataSourceCategory, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
   DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey, SuggestedSource,
-  PoliticianDataResponse
+  PoliticianDataResponse, ThemeConfig, HomepageConfig
 } from '../types';
 import { generateMysqlInstaller } from './sqlGenerator';
 import {
@@ -24,7 +23,7 @@ import {
     generateRealTimeline
 } from './geminiService';
 
-// Define Mock Data
+// --- MOCK DATA FALLBACKS ---
 const initialPlans: UserPlan[] = [
     { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
     { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
@@ -52,7 +51,23 @@ const defaultDashboardWidgets: DashboardWidget[] = [
     { id: 'data_sources', title: 'Fontes de Dados', visible: true },
 ];
 
-const CURRENT_VERSION = '3.1.0'; 
+const initialThemeConfig: ThemeConfig = {
+    primary: '#0D1117',
+    secondary: '#161B22',
+    accent: '#30363D',
+    text: '#E6EDF3',
+    blue: '#3B82F6'
+};
+
+const initialHomepageConfig: HomepageConfig = {
+    active: true,
+    title: 'Sistema de Investigação Estratégica',
+    subtitle: 'Plataforma de Inteligência Governamental',
+    heroImageUrl: '',
+    logoUrl: ''
+};
+
+const CURRENT_VERSION = '3.0.3'; 
 const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
 
 interface DatabaseSchema {
@@ -74,6 +89,8 @@ interface DatabaseSchema {
     systemPrompt: string;
     logs: LogEntry[];
     aiAutomationSettings: AiAutomationSettings;
+    themeConfig: ThemeConfig;
+    homepageConfig: HomepageConfig;
 }
 
 class DbService {
@@ -85,8 +102,9 @@ class DbService {
         this.init();
     }
 
+    // Retorna o caminho base da API.
     private getApiUrl(): string {
-        return '/api'; // Caminho relativo para usar o Proxy do Nginx
+        return '/api'; 
     }
 
     private getApiHeaders(): HeadersInit {
@@ -97,58 +115,65 @@ class DbService {
     }
 
     private async init() {
-        console.log("[DB] Tentando carregar estado do Backend MySQL...");
+        console.log(`[DB v${CURRENT_VERSION}] Inicializando conexão...`);
         try {
+            // Teste de conexão preliminar
+            const test = await this.testConnection();
+            if (test.status !== 'Conectado') {
+                console.warn(`[DB] Aviso: Backend indisponível ou erro de proxy (${test.details}). Usando dados padrão temporários.`);
+                if (!this.data) await this.resetDatabase(false); // Carrega defaults na memória sem tentar salvar
+                this.initialized = true;
+                return;
+            }
+
+            // Conexão bem-sucedida: Tenta baixar dados do MySQL
             const response = await fetch(`${this.getApiUrl()}/state`, { 
                 headers: { 'x-sync-token': DEFAULT_API_TOKEN } 
             });
             
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            // Verificação de Tipo de Conteúdo (Evita erro de "Unexpected token <" do Nginx)
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") === -1) {
-                console.error("[DB CRITICAL] A API retornou HTML em vez de JSON. Verifique o Nginx e se o servidor Node.js está rodando.");
-                throw new Error("Erro de Proxy Nginx/Node");
+                throw new Error("Resposta inválida: O servidor retornou HTML em vez de JSON. Verifique a configuração 'location /api' no Nginx.");
             }
 
-            if (response.ok) {
-                const remoteData = await response.json();
-                if (remoteData && Object.keys(remoteData).length > 0) {
-                    this.data = remoteData;
-                    this.initialized = true;
-                    console.log("[DB] ✅ Dados carregados do MySQL com sucesso.");
-                    return;
-                } else {
-                     console.log("[DB] MySQL conectado, mas tabela vazia. Inicializando dados padrão...");
-                }
+            const remoteData = await response.json();
+            if (remoteData && Object.keys(remoteData).length > 0) {
+                this.data = remoteData;
+                this.initialized = true;
+                console.log("[DB] ✅ Estado sincronizado com sucesso (MySQL).");
             } else {
-                console.warn(`[DB] Erro na resposta da API: ${response.status} ${response.statusText}`);
+                console.log("[DB] Banco de dados vazio. Inicializando com dados padrão...");
+                await this.resetDatabase();
             }
-        } catch (e) {
-            console.error("[DB] ❌ Falha crítica ao conectar com API/MySQL:", e);
-        }
 
-        // Se falhar ou estiver vazio, inicia com defaults e TENTA salvar no MySQL
-        await this.resetDatabase();
+        } catch (e) {
+            console.error("[DB] Erro crítico de inicialização:", e);
+            if (!this.data) await this.resetDatabase(false);
+        }
         this.initialized = true;
     }
 
     private async ensureReady() {
         if (!this.initialized || !this.data) {
-            // Pequena espera ativa se estiver inicializando
+            // Aguarda inicialização (Polling simples)
             let attempts = 0;
-            while (!this.initialized && attempts < 10) {
+            while (!this.initialized && attempts < 20) { 
                 await new Promise(resolve => setTimeout(resolve, 200));
                 attempts++;
             }
+            // Se ainda não estiver pronto, força init
             if (!this.data) await this.init();
         }
     }
 
-    // Salva diretamente no MySQL (Debounced)
     private async persistState() {
         if (!this.data) return;
-        
         if (this.syncTimeout) clearTimeout(this.syncTimeout);
 
+        // Debounce para evitar excesso de escritas
         this.syncTimeout = setTimeout(async () => {
             try {
                 const response = await fetch(`${this.getApiUrl()}/state`, {
@@ -156,14 +181,14 @@ class DbService {
                     headers: this.getApiHeaders(),
                     body: JSON.stringify(this.data)
                 });
-                if (!response.ok) console.error("[DB] Erro ao salvar estado no MySQL");
+                if (!response.ok) console.warn("[DB] Falha ao salvar dados no backend.");
             } catch (e) {
-                console.error("[DB] Erro de rede ao salvar:", e);
+                console.error("[DB] Erro de rede ao tentar salvar:", e);
             }
-        }, 500); 
+        }, 1000); 
     }
 
-    async resetDatabase() {
+    async resetDatabase(persist = true) {
         this.data = {
             users: initialUsers,
             modules: initialModules,
@@ -191,19 +216,11 @@ class DbService {
             },
             systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
             logs: [],
-            aiAutomationSettings: { isEnabled: false, frequency: 'daily' }
+            aiAutomationSettings: { isEnabled: false, frequency: 'daily' },
+            themeConfig: initialThemeConfig,
+            homepageConfig: initialHomepageConfig
         };
-        
-        // Tenta forçar a escrita inicial no banco para garantir que a tabela exista e tenha dados
-        try {
-            await fetch(`${this.getApiUrl()}/state`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-sync-token': DEFAULT_API_TOKEN },
-                body: JSON.stringify(this.data)
-            });
-        } catch (e) {
-            console.error("[DB] Falha ao inicializar banco remoto durante reset:", e);
-        }
+        if (persist) await this.persistState();
     }
 
     // --- Users & Auth ---
@@ -725,6 +742,37 @@ class DbService {
         return this.data;
     }
     
+    // --- Theme & Homepage ---
+    async getTheme(): Promise<ThemeConfig> { await this.ensureReady(); return this.data!.themeConfig || initialThemeConfig; }
+    async saveTheme(config: ThemeConfig, username: string) {
+        await this.ensureReady();
+        this.data!.themeConfig = config;
+        // Persist for reload in index.html
+        localStorage.setItem('sie_theme', JSON.stringify(config));
+        this.logActivity('INFO', 'Tema visual atualizado', username);
+        await this.persistState();
+    }
+
+    async getHomepageConfig(): Promise<HomepageConfig> { await this.ensureReady(); return this.data!.homepageConfig || initialHomepageConfig; }
+    async saveHomepageConfig(config: HomepageConfig, username: string) {
+        await this.ensureReady();
+        this.data!.homepageConfig = config;
+        this.logActivity('INFO', 'Configuração da Homepage atualizada', username);
+        await this.persistState();
+    }
+
+    async uploadFile(file: File): Promise<string> {
+        // Em produção, isso enviaria para /api/upload
+        // Aqui simulamos com Base64 local
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
+    }
+
+    // --- Server Ops ---
     async downloadMysqlInstaller() {
         await this.ensureReady();
         if(!this.data) return;
@@ -782,16 +830,13 @@ class DbService {
             
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") === -1) {
-                 const text = await response.text();
-                 if (text.includes("<!DOCTYPE html")) {
-                     return { success: false, output: "ERRO CRÍTICO DE PROXY: O Nginx não redirecionou a API. Configure o bloco 'location /api' no Vhost." };
-                 }
-                 return { success: false, output: `Erro: ${text.substring(0, 50)}` };
+                 return { success: false, output: "ERRO CRÍTICO DE PROXY: O Nginx não redirecionou a API corretamente. O servidor retornou HTML. Verifique a configuração 'location /api' no Vhost." };
             }
+            
             return await response.json();
 
         } catch (e) {
-             return { success: false, output: `FALHA DE CONEXÃO: ${(e as Error).message}. O backend (server.cjs) está rodando?` };
+             return { success: false, output: `FALHA DE CONEXÃO: ${(e as Error).message}.` };
         }
     }
     
@@ -806,6 +851,11 @@ class DbService {
     async testConnection(): Promise<{ status: string, details: string }> {
         try {
             const response = await fetch(`${this.getApiUrl()}/status`);
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") === -1) {
+                 return { status: 'Falha', details: 'O endpoint retornou HTML (Erro de Proxy Nginx). Verifique se o bloco "location /api" existe e aponta para a porta 3000.' };
+            }
+
             if (response.ok) {
                 const data = await response.json();
                 return { 
@@ -815,7 +865,7 @@ class DbService {
             }
             return { status: 'Erro', details: `API respondeu com erro ${response.status}` };
         } catch (e) {
-            return { status: 'Falha', details: 'Não foi possível contactar o servidor. Verifique se o backend está rodando.' };
+            return { status: 'Falha', details: 'Não foi possível contactar o servidor (Network Error). O Backend pode estar parado.' };
         }
     }
 }

@@ -1,6 +1,8 @@
 
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
+
+const { useNavigate } = ReactRouterDOM as any;
 
 interface ModuleSettingsLayoutProps {
     children: React.ReactNode;

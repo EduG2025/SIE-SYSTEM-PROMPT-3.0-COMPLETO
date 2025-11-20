@@ -1,8 +1,9 @@
 
-
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { AdminViewType } from '../../types';
+
+const { NavLink } = ReactRouterDOM as any;
 
 interface AdminSidebarProps {
   onLogout: () => void;
@@ -17,7 +18,7 @@ const NavItem: React.FC<{
     <li>
       <NavLink
         to={`/admin/${view}`}
-        className={({ isActive }) =>
+        className={({ isActive }: { isActive: boolean }) =>
           `flex items-center p-3 my-1 rounded-lg cursor-pointer transition-colors duration-200 ${
             isActive
               ? 'bg-brand-blue text-white shadow-lg'

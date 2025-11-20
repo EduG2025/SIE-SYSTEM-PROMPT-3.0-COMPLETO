@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import { dbService } from '../services/dbService';
 import type { Politician, RiskLevel } from '../types';
 import Spinner from './common/Spinner';
 import RiskIndicator from './political/RiskIndicator';
+
+const { Link, useNavigate } = ReactRouterDOM as any;
 
 const ITEMS_PER_PAGE = 12;
 

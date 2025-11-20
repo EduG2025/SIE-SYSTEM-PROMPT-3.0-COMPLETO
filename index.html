@@ -5,26 +5,35 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>S.I.E. 3.1.0</title>
+    <title>S.I.E. 3.0.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Load theme from local storage or default
+      const savedTheme = localStorage.getItem('sie_theme');
+      const theme = savedTheme ? JSON.parse(savedTheme) : {
+        primary: '#0D1117',
+        secondary: '#161B22',
+        accent: '#30363D',
+        text: '#E6EDF3',
+        blue: '#3B82F6'
+      };
+
       tailwind.config = {
         theme: {
           extend: {
             colors: {
-              'brand-primary': '#0D1117',
-              'brand-secondary': '#161B22',
-              'brand-accent': '#30363D',
+              'brand-primary': theme.primary,
+              'brand-secondary': theme.secondary,
+              'brand-accent': theme.accent,
               'brand-light': '#8B949E',
-              'brand-text': '#E6EDF3',
-              'brand-blue': '#3B82F6',
+              'brand-text': theme.text,
+              'brand-blue': theme.blue,
               'brand-red': '#EF4444',
               'brand-green': '#22C55E',
               'brand-yellow': '#EAB308',
               'brand-orange': '#F97316',
               'brand-purple': '#8B5CF6',
               'brand-cyan': '#06B6D4',
-              // Paleta para o novo Módulo Político
               'sie-blue-950': '#0d1a2e',
               'sie-blue-900': '#102a4e',
               'sie-blue-800': '#1b3f7a',

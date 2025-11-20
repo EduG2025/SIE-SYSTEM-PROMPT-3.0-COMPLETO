@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { Lawsuit } from '../types';
 import { dbService } from '../services/dbService';
 import Spinner from './common/Spinner';
+
+const { Link } = ReactRouterDOM as any;
 
 const statusColorMap: Record<Lawsuit['status'], string> = {
   Ongoing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',

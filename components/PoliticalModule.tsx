@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { PoliticianDataResponse, Politician } from '../types';
 import { dbService } from '../services/dbService';
 import Spinner from './common/Spinner';
@@ -16,6 +16,8 @@ import RiskIndicator from './political/RiskIndicator';
 const ConnectionGraph = lazy(() => import('./political/ConnectionGraph'));
 const GeminiAnalysis = lazy(() => import('./political/GeminiAnalysis'));
 
+const { useParams, useNavigate, Link } = ReactRouterDOM as any;
+
 // --- Icons ---
 const RefreshIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 4l1.714 1.714a9 9 0 1012.572 0M20 20l-1.714-1.714a9 9 0 10-12.572 0" /></svg>;
 const StarIcon = ({ filled, className }: { filled: boolean; className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" className={className} fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>;
@@ -29,7 +31,7 @@ const NewspaperIcon = ({ className }: { className?: string }) => <svg xmlns="htt
 type Tab = 'overview' | 'financial' | 'network' | 'intel';
 
 const PoliticalModule: React.FC = () => {
-    const { politicianId } = useParams<{ politicianId: string }>();
+    const { politicianId } = useParams();
     const navigate = useNavigate();
     const [response, setResponse] = useState<PoliticianDataResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -201,10 +203,10 @@ const PoliticalModule: React.FC = () => {
                             {/* Histórico de Votações / Decisões */}
                             <div className="bg-brand-secondary border border-white/10 rounded-xl p-6">
                                 <h3 className="text-lg font-bold text-white mb-4 flex items-center">
-                                    <DocumentIcon className="mr-2 text-brand-blue" /> Performance Legislativa & Executiva
+                                    <DocumentIcon className="mr-2 text-brand-blue" /> Histórico de Votações (5 Anos)
                                 </h3>
                                 {politician.votingHistory && politician.votingHistory.length > 0 ? (
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 max-h-96 overflow-y-auto custom-scrollbar pr-2">
                                         {politician.votingHistory.map((vote, i) => (
                                             <div key={i} className="bg-brand-primary/40 p-4 rounded-lg border border-brand-accent/30 flex flex-col md:flex-row justify-between items-start gap-3">
                                                 <div className="flex-1">

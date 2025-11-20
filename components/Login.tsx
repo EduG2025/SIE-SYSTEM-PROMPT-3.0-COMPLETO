@@ -54,7 +54,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     <div className="bg-brand-blue p-2 rounded-lg mr-4">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 10l-2 2m0 0l-2-2m2 2V3" /></svg>
                     </div>
-                    <h1 className="text-2xl font-bold text-brand-text">S.I.E. 3.0.1</h1>
+                    <h1 className="text-2xl font-bold text-brand-text">S.I.E. 3.0.3</h1>
                 </div>
                 <h2 className="text-xl font-semibold text-brand-text mb-6">Acesso ao Sistema</h2>
                 

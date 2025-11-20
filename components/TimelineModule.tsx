@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { TimelineEvent } from '../types';
 import { dbService } from '../services/dbService';
 import Spinner from './common/Spinner';
+
+const { Link } = ReactRouterDOM as any;
 
 const NominationIcon = () => (
     <div className="bg-green-500 rounded-full h-8 w-8 flex items-center justify-center shadow-lg shadow-green-500/20">

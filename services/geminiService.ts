@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules, InvestigationReport, SearchFilters } from '../types';
+import type { SuggestedSource, DashboardData, Politician, GeminiAnalysisResult, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, User, PoliticalModuleRules, InvestigationReport, SearchFilters, EmployeeAlert } from '../types';
 
 // --- CONSTANTES DE FALLBACK (MODO DE SEGURANÇA) ---
 const FALLBACK_DASHBOARD_DATA: DashboardData = {
@@ -587,7 +587,91 @@ const generateListFromSearch = async <T>(municipality: string, promptContext: st
     }
 };
 
-export const generateRealEmployees = (municipality: string) => generateListFromSearch<Employee>(municipality, "Liste 10 secretários municipais...", 'employees');
+// --- INVESTIGAÇÃO DE FUNCIONÁRIOS (COM ALERTA DE CARGOS CRÍTICOS) ---
+
+export const investigateEmployee = async (employee: Employee, municipality: string): Promise<string> => {
+    let currentUser = null;
+    try {
+         const { dbService } = await import('./dbService');
+         const users = await dbService.getUsers();
+         currentUser = users[0];
+    } catch(e) {}
+
+    try {
+        const apiKey = await getEffectiveApiKey(currentUser);
+        const ai = getAiClient(apiKey);
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Você é um Auditor de Integridade Pública.
+            Realize uma verificação de antecedentes e conformidade sobre o funcionário:
+            
+            Nome: ${employee.name}
+            Cargo: ${employee.position}
+            Departamento: ${employee.department}
+            Município: ${municipality}
+            
+            INVESTIGUE POR:
+            1. Vínculos de Nepotismo (Relação familiar com prefeito ou vereadores).
+            2. Processos Judiciais (Cíveis ou Criminais) no nome.
+            3. Conflito de Interesses (Sócios de empresas que têm contrato com a prefeitura).
+            4. Acúmulo Ilegal de Cargos.
+            
+            Retorne um relatório detalhado em Markdown. Se não encontrar nada, diga explicitamente "Nenhum indício encontrado em fontes abertas".`,
+            config: { tools: [{googleSearch: {}}] },
+        });
+
+        return response.text || "Investigação inconclusiva.";
+    } catch (e: any) {
+        console.error("Investigação falhou", e);
+        return "Erro ao realizar a investigação.";
+    }
+};
+
+export const generateRealEmployees = async (municipality: string): Promise<Employee[]> => {
+    // 1. Busca Lista Base
+    const employees = await generateListFromSearch<Employee>(municipality, "Liste 10 secretários municipais e cargos de confiança com nome completo e cargo.", 'employees');
+    
+    // 2. Cruzamento com Cargos Críticos (Políticos)
+    try {
+        const { dbService } = await import('./dbService');
+        const politicalModule = await dbService.getModule('political');
+        let criticalPositions: string[] = [];
+        
+        if (politicalModule && politicalModule.rules) {
+            try {
+                const rules = JSON.parse(politicalModule.rules) as PoliticalModuleRules;
+                criticalPositions = rules.critical_positions || [];
+            } catch (e) {}
+        }
+
+        // 3. Aplica Alertas Automáticos
+        if (criticalPositions.length > 0) {
+            employees.forEach(emp => {
+                const isCritical = criticalPositions.some(cp => 
+                    emp.position.toLowerCase().includes(cp.toLowerCase())
+                );
+
+                if (isCritical) {
+                    if (!emp.alerts) emp.alerts = [];
+                    emp.alerts.push({
+                        type: 'Cargo Crítico',
+                        severity: 'Alto',
+                        description: `O cargo '${emp.position}' está listado nas regras de monitoramento político.`
+                    });
+                    // Aumenta o score de risco artificialmente
+                    emp.riskScore = Math.max(emp.riskScore || 5, 8.5);
+                    emp.riskAnalysis = emp.riskAnalysis 
+                        ? `${emp.riskAnalysis} [ALERTA DE CARGO CRÍTICO]` 
+                        : "Ocupante de cargo sensível definido nas regras de compliance.";
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("Falha ao cruzar com regras políticas", e);
+    }
+
+    return employees;
+};
 
 // Atualizado para buscar dados profundos de empresas
 export const generateRealCompanies = (municipality: string) => generateListFromSearch<Company>(municipality, `
@@ -717,6 +801,9 @@ export const generateDeepPoliticianAnalysis = async (partialPolitician: Politici
         const apiKey = await getEffectiveApiKey(currentUser);
         const ai = getAiClient(apiKey);
         
+        const currentYear = new Date().getFullYear();
+        const startYear = currentYear - 5;
+
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: `Atue como um Auditor Forense Sênior do S.I.E (Sistema de Investigação Estratégica).
@@ -725,7 +812,10 @@ export const generateDeepPoliticianAnalysis = async (partialPolitician: Politici
             OBJETIVOS DA INVESTIGAÇÃO (Seja detalhista e crítico):
             1. **SALÁRIO REAL & BENEFÍCIOS**: Busque no Portal da Transparência do município o salário bruto mensal mais recente. Retorne o valor numérico exato.
             2. **REDES SOCIAIS ATIVAS**: Encontre links reais e o número aproximado de seguidores ATUAIS no Instagram/Facebook. Calcule a taxa de engajamento (Baixo/Médio/Alto) baseada em comentários recentes.
-            3. **HISTÓRICO DE VOTOS & DECISÕES**: Liste 5 votações recentes ou atos administrativos assinados por ele. Indique se foi "Favorável", "Contrário" e descreva o IMPACTO real na sociedade. Destaque polêmicas.
+            3. **HISTÓRICO DE VOTAÇÕES (Janela: ${startYear}-${currentYear})**: 
+               - Pesquise nos portais legislativos oficiais e notícias.
+               - Liste até 10 votações, proposições ou atos administrativos relevantes assinados/votados por ele nos últimos 5 anos. 
+               - Indique: Título do Projeto, Data aproximada, Voto (Favorável/Contrário/Abstenção/Autor) e IMPACTO (Alto/Médio/Baixo).
             4. **NOTÍCIAS RECENTES**: Busque 3 manchetes na mídia local/nacional. Analise o sentimento real da matéria.
             5. **EVOLUÇÃO PATRIMONIAL**: Busque declarações de bens no TSE (DivulgaCand). Compare o valor total declarado em anos diferentes.
             6. **CONEXÕES DE RISCO**: Mapeie doadores de campanha (empresas/pessoas), parentes nomeados (indícios de Nepotismo) ou aliados políticos próximos.

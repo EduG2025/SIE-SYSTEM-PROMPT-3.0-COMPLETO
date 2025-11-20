@@ -1,8 +1,10 @@
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { Official } from '../../types';
 import Spinner from '../common/Spinner';
+
+const { Link } = ReactRouterDOM as any;
 
 interface MayorInfoCardProps {
     official?: Official;

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import MunicipalitySelector from './components/MunicipalitySelector';
@@ -16,6 +16,8 @@ import type { User, Module } from './types';
 import { dbService } from './services/dbService';
 import Spinner from './components/common/Spinner';
 import GlobalLoadingBar from './components/common/GlobalLoadingBar';
+
+const { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } = ReactRouterDOM as any;
 
 // FIX: Lazily load module components to resolve 'Cannot find name' errors.
 const Dashboard = lazy(() => import('./components/Dashboard'));
