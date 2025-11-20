@@ -28,11 +28,13 @@ const DbConfigForm: React.FC<{ config: DbConfig; onSave: (config: DbConfig) => v
                     name="apiUrl" 
                     value={formData.apiUrl || ''} 
                     onChange={handleChange} 
-                    placeholder="Ex: https://api.seusistema.com ou http://IP:3000"
+                    placeholder="Deixe vazio para usar conexão interna (Recomendado)"
                     className="w-full bg-brand-primary p-2 rounded border border-brand-accent"
-                    required
                 />
-                <p className="text-xs text-brand-light mt-1">Endereço onde o serviço de sincronização Node.js está rodando.</p>
+                <p className="text-xs text-brand-light mt-1">
+                    Deixe em <strong>branco</strong> para usar a conexão interna segura via Nginx (Porta 3000).
+                    <br/>Use uma URL completa (http://...) apenas se a API estiver em outro servidor.
+                </p>
             </div>
             <div>
                 <label className="text-sm text-brand-light mb-1 block">Token de Autenticação (Secret)</label>
@@ -262,7 +264,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                                 </span>
                             </div>
                             <p className="truncate" title={dbConfig.apiUrl}>
-                                <strong>Endpoint:</strong> {dbConfig.apiUrl || '---'}
+                                <strong>Endpoint:</strong> {dbConfig.apiUrl ? dbConfig.apiUrl : '<Interno>'}
                             </p>
                             <p>
                                 <strong>Último Sync:</strong> {dbConfig.lastSync ? new Date(dbConfig.lastSync).toLocaleString('pt-BR') : 'Nunca'}
