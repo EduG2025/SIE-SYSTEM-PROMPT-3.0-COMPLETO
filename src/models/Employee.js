@@ -1,3 +1,4 @@
+
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
@@ -29,6 +30,17 @@ const Employee = sequelize.define('Employee', {
         type: DataTypes.DECIMAL(4, 2),
         field: 'risk_score',
         defaultValue: 0
+    },
+    // NOVOS CAMPOS DE RISCO
+    criticalPosition: {
+        type: DataTypes.BOOLEAN,
+        field: 'cargo_critico',
+        defaultValue: false
+    },
+    nepotismAlert: {
+        type: DataTypes.STRING,
+        field: 'alerta_nepotismo',
+        allowNull: true
     },
     riskAnalysis: {
         type: DataTypes.TEXT,

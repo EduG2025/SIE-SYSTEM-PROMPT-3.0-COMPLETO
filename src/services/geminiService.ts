@@ -1,7 +1,8 @@
 
 import type { 
     InvestigationReport, SearchFilters, Politician, GeminiAnalysisResult, 
-    DashboardData, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, SuggestedSource
+    DashboardData, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, SuggestedSource,
+    PoliticalModuleRules
 } from '../types';
 import { dbService } from './dbService';
 
@@ -170,9 +171,6 @@ export const getAIResponse = async (query: string, systemPrompt: string): Promis
 };
 
 export const validateApiKey = async (key: string): Promise<boolean> => {
-    // Esta validação ainda pode ser local ou via backend.
-    // Para segurança, idealmente o backend valida.
-    // Mantendo compatibilidade: chama endpoint de validação
     return true; 
 };
 
@@ -227,18 +225,90 @@ export const generateRealTimeline = async (municipality: string): Promise<Timeli
 };
 
 export const generateRealEmployees = async (municipality: string): Promise<Employee[]> => {
+    // 1. Busca Lista Base via IA com instrução específica de Nepotismo
     const prompt = `Liste 8 a 10 nomes de secretários municipais e cargos de confiança ATUAIS de ${municipality}.
     Busque em Diários Oficiais e site da Prefeitura.
-    Retorne JSON Array: { "name": "Nome", "position": "Cargo", "department": "Secretaria", "appointedBy": "Prefeito X", "startDate": "YYYY-MM-DD", "riskScore": 0 }`;
+    
+    TAREFA DE NEPOTISMO:
+    Para cada nome, verifique se o sobrenome coincide com o Prefeito, Vice ou outros Secretários. 
+    Se houver suspeita, preencha o campo "nepotismAlert".
+    
+    Retorne JSON Array: { "name": "Nome", "position": "Cargo", "department": "Secretaria", "appointedBy": "Nome do Prefeito/Gestor", "startDate": "YYYY-MM-DD", "riskScore": 0, "nepotismAlert": "Descrição do parentesco suspeito ou null" }`;
+
+    let employees: Employee[] = [];
 
     try {
         const result = await callBackendAI(prompt, "gemini-2.5-flash", {
             tools: [{ googleSearch: {} }],
             responseMimeType: "application/json"
         });
-        const data = extractJson(result.text);
-        return Array.isArray(data) ? data : [];
-    } catch (e) { return []; }
+        employees = extractJson(result.text) || [];
+    } catch (e) { 
+        return []; 
+    }
+
+    // 2. Obter Regras do Módulo Político
+    let criticalPositions: string[] = ['Finanças', 'Licitação', 'Obras', 'Saúde', 'Educação', 'Chefe de Gabinete', 'Tesouraria'];
+    
+    try {
+        const politicalModule = await dbService.getModule('political');
+        if (politicalModule && politicalModule.rules) {
+            try {
+                const rules = JSON.parse(politicalModule.rules) as PoliticalModuleRules;
+                if (rules.critical_positions && rules.critical_positions.length > 0) {
+                    criticalPositions = rules.critical_positions;
+                }
+            } catch(e) {}
+        }
+    } catch (e) {
+        console.warn("Using default critical positions due to load error");
+    }
+    
+    // 3. Cruzamento Lógico e Enriquecimento
+    employees = employees.map(emp => {
+        const isCritical = criticalPositions.some(cp => 
+            emp.position.toLowerCase().includes(cp.toLowerCase()) || 
+            (emp.department && emp.department.toLowerCase().includes(cp.toLowerCase()))
+        );
+
+        if (isCritical) {
+            emp.criticalPosition = true;
+            emp.riskScore = Math.max(emp.riskScore || 0, 7.0); 
+            if (!emp.alerts) emp.alerts = [];
+            emp.alerts.push({
+                type: 'Cargo Crítico',
+                severity: 'Alto',
+                description: `Cargo listado nas regras de monitoramento político: ${emp.position}`
+            });
+        } else {
+            emp.criticalPosition = false;
+        }
+
+        // Heurística de Fallback para Nepotismo (caso a IA não tenha pego, mas os sobrenomes batam)
+        if (emp.appointedBy && emp.name && !emp.nepotismAlert) {
+            const empSurname = emp.name.split(' ').pop();
+            const appointSurname = emp.appointedBy.split(' ').pop();
+            const commonSurnames = ['SILVA', 'SANTOS', 'OLIVEIRA', 'SOUZA', 'COSTA', 'PEREIRA', 'FERREIRA', 'RODRIGUES'];
+            
+            if (empSurname && appointSurname && empSurname.length > 3 && empSurname === appointSurname && !commonSurnames.includes(empSurname.toUpperCase())) {
+                emp.nepotismAlert = `Sobrenome coincidente com autoridade nomeadora (${emp.appointedBy}). Necessário investigação.`;
+            }
+        }
+
+        if (emp.nepotismAlert) {
+            emp.riskScore = 10.0; // Risco Máximo
+            if (!emp.alerts) emp.alerts = [];
+            emp.alerts.push({
+                type: 'Nepotismo',
+                severity: 'Crítico',
+                description: emp.nepotismAlert
+            });
+        }
+
+        return emp;
+    });
+
+    return employees;
 };
 
 export const generateRealCompanies = async (municipality: string): Promise<Company[]> => {
@@ -350,11 +420,28 @@ export const generateDeepPoliticianAnalysis = async (p: Politician): Promise<Pol
 };
 
 export const investigateEmployee = async (e: Employee, m: string): Promise<string> => {
-    const prompt = `Investigue ${e.name}, cargo ${e.position} em ${m}. Busque nepotismo ou processos. Responda em Markdown.`;
+    const prompt = `Atue como um Auditor de Integridade Pública.
+    Realize uma INVESTIGAÇÃO FORENSE PROFUNDA sobre:
+    
+    Indivíduo: ${e.name}
+    Cargo: ${e.position}
+    Departamento: ${e.department}
+    Município: ${m}
+    
+    Busque em Diários Oficiais, Portais de Transparência e Processos Judiciais.
+    
+    FOCO DA ANÁLISE:
+    1. **Nepotismo**: Verifique se há parentesco com Prefeito, Vice ou Secretários.
+    2. **Antecedentes**: Busque processos (TJs, TRFs) no nome.
+    3. **Conflito de Interesses**: Verifique se é sócio de empresas com contratos ativos na prefeitura.
+    4. **Histórico**: Cargos anteriores e exonerações.
+    
+    Responda em Markdown estruturado com seções claras e conclusão de risco. Se não houver dados, informe explicitamente.`;
+    
     try {
         const result = await callBackendAI(prompt, "gemini-2.5-flash", {
             tools: [{ googleSearch: {} }]
         });
-        return result.text || "Sem dados.";
+        return result.text || "Sem dados disponíveis para este funcionário.";
     } catch(e) { return "Erro na investigação."; }
 };

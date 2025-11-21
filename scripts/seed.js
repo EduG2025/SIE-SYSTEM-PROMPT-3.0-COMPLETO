@@ -1,3 +1,4 @@
+
 /**
  * script/seed.js
  * Popula o banco de dados com dados iniciais essenciais para o funcionamento do S.I.E. 3.0.3
@@ -18,11 +19,29 @@ async function seed() {
 
         console.log('🌱 Iniciando Seeding...');
 
-        // 1. Criar Planos
+        // 1. Criar Planos (IDs Corrigidos para bater com os módulos abaixo)
         const plans = [
-            { id: 'starter', name: 'Starter', requestLimit: 100, features: [], modules: ['dashboard'] },
-            { id: 'pro', name: 'Pro', requestLimit: 500, features: ['ai_analysis'], modules: ['dashboard', 'political', 'employees'] },
-            { id: 'enterprise', name: 'Enterprise', requestLimit: -1, features: ['ai_analysis', 'own_api_key', 'data_export'], modules: ['dashboard', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'research', 'ocr'] }
+            { 
+                id: 'starter', 
+                name: 'Starter', 
+                requestLimit: 100, 
+                features: [], 
+                modules: ['mod-dash'] 
+            },
+            { 
+                id: 'pro', 
+                name: 'Pro', 
+                requestLimit: 500, 
+                features: ['ai_analysis'], 
+                modules: ['mod-dash', 'mod-poli', 'mod-func'] 
+            },
+            { 
+                id: 'enterprise', 
+                name: 'Enterprise', 
+                requestLimit: -1, 
+                features: ['ai_analysis', 'own_api_key', 'data_export'], 
+                modules: ['mod-dash', 'mod-poli', 'mod-func', 'mod-empr', 'mod-cont', 'mod-judi', 'mod-soci', 'mod-time', 'mod-res', 'mod-ocr'] 
+            }
         ];
 
         for (const p of plans) {
@@ -71,7 +90,7 @@ async function seed() {
         }
         console.log('✅ Configurações do Sistema (v3.0.3) aplicadas.');
 
-        // 4. Criar Módulos Padrão
+        // 4. Criar Módulos Padrão (IDs e Views alinhados)
         const modules = [
             { id: 'mod-dash', name: 'Dashboard', view: 'dashboard', icon: 'dashboard', active: true, hasSettings: true },
             { id: 'mod-poli', name: 'Político', view: 'political', icon: 'political', active: true, hasSettings: true },

@@ -1,4 +1,6 @@
+
 const { SystemSetting } = require('../models');
+const schedulerService = require('../services/schedulerService');
 
 const SettingsController = {
     // --- Theme Logic ---
@@ -63,14 +65,19 @@ const SettingsController = {
         }
     },
 
-    // --- AI System Prompt Logic ---
+    // --- AI Settings ---
     getAiSettings: async (req, res) => {
         try {
-            const setting = await SystemSetting.findByPk('ai_system_prompt');
-            const defaultPrompt = 'Você é um analista de inteligência estratégica governamental focado em integridade pública e compliance.';
+            // Prompt Global
+            const promptSetting = await SystemSetting.findByPk('ai_system_prompt');
             
+            // Automation Settings
+            const automationSetting = await SystemSetting.findByPk('ai_automation_settings');
+            const defaultAutomation = { isEnabled: false, frequency: 'daily' };
+
             res.json({ 
-                systemPrompt: setting ? setting.value.prompt : defaultPrompt 
+                systemPrompt: promptSetting ? promptSetting.value.prompt : '',
+                automation: automationSetting ? automationSetting.value : defaultAutomation
             });
         } catch (error) {
             res.status(500).json({ message: 'Error fetching AI settings', error: error.message });
@@ -80,14 +87,49 @@ const SettingsController = {
     saveAiSettings: async (req, res) => {
         try {
             const { systemPrompt } = req.body;
-            await SystemSetting.upsert({
-                key: 'ai_system_prompt',
-                value: { prompt: systemPrompt },
-                description: 'Global AI Persona & Rules'
-            });
+            if (systemPrompt) {
+                await SystemSetting.upsert({
+                    key: 'ai_system_prompt',
+                    value: { prompt: systemPrompt },
+                    description: 'Global AI Persona & Rules'
+                });
+            }
             res.json({ success: true, message: 'Configurações de IA salvas' });
         } catch (error) {
             res.status(500).json({ message: 'Error saving AI settings', error: error.message });
+        }
+    },
+
+    // Salva configurações de automação e recarrega o CRON
+    saveAutomationSettings: async (req, res) => {
+        try {
+            const settings = req.body;
+            await SystemSetting.upsert({
+                key: 'ai_automation_settings',
+                value: settings,
+                description: 'Cron Job Configuration'
+            });
+            
+            // Notifica o serviço de agendamento para aplicar as novas regras
+            await schedulerService.reload();
+
+            res.json({ success: true, message: 'Automação configurada com sucesso' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erro ao salvar automação', error: error.message });
+        }
+    },
+
+    // Trigger Manual da Tarefa de Automação
+    runAutomationTask: async (req, res) => {
+        try {
+            const success = await schedulerService.runNow();
+            if (success) {
+                res.json({ success: true, message: 'Tarefa executada com sucesso.' });
+            } else {
+                res.status(500).json({ success: false, message: 'A tarefa falhou ao executar.' });
+            }
+        } catch (error) {
+            res.status(500).json({ message: 'Erro na execução manual', error: error.message });
         }
     }
 };
