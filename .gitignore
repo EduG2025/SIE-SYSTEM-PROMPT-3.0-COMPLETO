@@ -1,9 +1,3 @@
-# Scripts que não devem ser atualizados
-deploy.sh
-setup.sh
-auto_backup.sh
-auto_docs.sh
-
 # Logs
 logs
 *.log
@@ -13,7 +7,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Dependências e builds
 node_modules
 dist
 dist-ssr
