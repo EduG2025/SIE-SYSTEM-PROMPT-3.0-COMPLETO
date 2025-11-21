@@ -4,15 +4,16 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', // Garante caminhos absolutos para evitar erros de carregamento em subrotas
+  base: '/',
   build: {
     outDir: 'dist',
-    emptyOutDir: true, // Limpa a pasta dist antes de construir para remover arquivos velhos (cache bust)
-    sourcemap: false
+    emptyOutDir: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 1600
   },
   resolve: {
     alias: {
-      '@': path.resolve('./'),
+      '@': path.resolve(__dirname, './src'),
     },
   },
 });
