@@ -3,7 +3,7 @@ const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'sie301', 
+  process.env.DB_NAME || 'sie_datalake', 
   process.env.DB_USER || 'sie301', 
   process.env.DB_PASS || 'Gegerminal180!', 
   {
