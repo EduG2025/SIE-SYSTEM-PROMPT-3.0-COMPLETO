@@ -26,7 +26,7 @@ Estes scripts localizados na raiz do projeto automatizam a manutenção do servi
 
 **Comando:**
 ```bash
-./setup.sh
+dos2unix setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 #### `deploy.sh` (Atualização Diária)
@@ -40,7 +40,7 @@ Estes scripts localizados na raiz do projeto automatizam a manutenção do servi
 
 **Comando:**
 ```bash
-./deploy.sh
+dos2unix deploy.sh && chmod +x deploy.sh && ./deploy.sh
 ```
 
 ---
