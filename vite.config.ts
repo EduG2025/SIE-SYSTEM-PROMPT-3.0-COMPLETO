@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -8,11 +9,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: false, // Desativa sourcemaps em produção para segurança/tamanho
+    sourcemap: false, 
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
         output: {
-            // Code Splitting: Separa bibliotecas pesadas em arquivos diferentes
             manualChunks: {
                 'vendor-react': ['react', 'react-dom', 'react-router-dom'],
                 'vendor-ui': ['recharts', 'lucide-react', 'framer-motion'],
@@ -26,5 +26,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve('./src'),
     },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
   },
 });

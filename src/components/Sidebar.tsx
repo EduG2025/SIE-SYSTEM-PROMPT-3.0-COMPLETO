@@ -1,5 +1,5 @@
 
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import type { Module, User } from '../types';
 import { dbService } from '../services/dbService';
@@ -101,97 +101,26 @@ const UserProfileHeader: React.FC<{ user: User | null; onLogout: () => void }> =
     );
 };
 
-// Widget de Cota Inteligente
-const QuotaWidget: React.FC<{ user: User | null }> = ({ user }) => {
-    const [usageStats, setUsageStats] = useState({ usage: 0, limit: 100 });
-
-    // Atualiza estatísticas de uso periodicamente ou quando o usuário muda
-    useEffect(() => {
-        let isMounted = true;
-        const fetchStats = async () => {
-            if (user) {
-                const stats = await dbService.getUserUsageStats(user.id);
-                if(isMounted) setUsageStats(stats);
-            }
-        };
-        
-        fetchStats();
-        const interval = setInterval(fetchStats, 15000); // Poll every 15s to keep quota sync
-        
-        return () => {
-            isMounted = false;
-            clearInterval(interval);
-        };
-    }, [user]);
-
-    // Calculate Percentage
-    const percentage = usageStats.limit === -1 ? 0 : Math.min(100, Math.round((usageStats.usage / usageStats.limit) * 100));
-    const isUnlimited = usageStats.limit === -1;
-    
-    // Color Logic
-    const getGradient = () => {
-        if (isUnlimited) return 'from-purple-500 to-indigo-400';
-        if (percentage > 90) return 'from-red-600 to-red-400';
-        if (percentage > 70) return 'from-orange-500 to-yellow-400';
-        return 'from-brand-blue to-brand-cyan';
-    };
-
-    return (
-        <div className="mx-4 mt-auto mb-4 p-3 bg-brand-primary/40 rounded-xl border border-white/5 shadow-inner backdrop-blur-sm group relative">
-            <div className="flex justify-between items-end mb-2">
-                <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-brand-light uppercase tracking-wider flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                        Cota de IA
-                    </span>
-                    <span className="text-xs text-white font-medium mt-0.5">
-                        {isUnlimited ? 'Acesso Ilimitado' : `${usageStats.limit - usageStats.usage} reqs restantes`}
-                    </span>
-                </div>
-                <span className={`text-xs font-mono font-bold ${percentage > 90 ? 'text-red-400' : 'text-brand-cyan'}`}>
-                    {isUnlimited ? '∞' : `${percentage}%`}
-                </span>
-            </div>
-            
-            {/* Progress Bar Container */}
-            <div className="w-full bg-brand-secondary h-1.5 rounded-full overflow-hidden shadow-inner border border-white/5">
-                <div 
-                    className={`h-full rounded-full bg-gradient-to-r ${getGradient()} transition-all duration-700 ease-out shadow-[0_0_8px_rgba(59,130,246,0.4)]`}
-                    style={{ width: isUnlimited ? '100%' : `${percentage}%` }}
-                >
-                    {/* Shimmer Effect on Bar */}
-                    <div className="w-full h-full absolute top-0 left-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-shimmer"></div>
-                </div>
-            </div>
-
-            {/* Tooltip Info */}
-            <div className="absolute bottom-full left-0 w-full mb-2 p-2 bg-brand-secondary text-[10px] text-brand-light rounded border border-brand-accent shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center">
-                Utilidade da Inteligência Artificial em tempo real. Renova diariamente.
-            </div>
-        </div>
-    );
-};
+const SectionLabel: React.FC<{ label: string }> = ({ label }) => (
+    <div className="px-5 mt-6 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/50 flex items-center">
+        <span className="flex-grow bg-brand-light/10 h-[1px] mr-2"></span>
+        {label}
+    </div>
+);
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunicipality, modules, isLoading = false }) => {
     const { currentUser } = useAuth();
 
-    // Agrupamento Lógico de Módulos
+    // Agrupamento Lógico de Módulos usando a nova propriedade 'category'
     const groupedModules = useMemo(() => {
         const groups = {
-            strategy: modules.filter(m => ['dashboard', 'research'].includes(m.view)),
-            entities: modules.filter(m => ['political', 'employees', 'companies'].includes(m.view)),
-            intel: modules.filter(m => ['contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view)),
-            others: modules.filter(m => !['dashboard', 'research', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view))
+            strategy: modules.filter(m => m.category === 'strategy' || ['dashboard', 'research'].includes(m.view)),
+            entities: modules.filter(m => m.category === 'entities' || ['political', 'employees', 'companies'].includes(m.view)),
+            intelligence: modules.filter(m => m.category === 'intelligence' || ['contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view)),
+            others: modules.filter(m => !m.category && !['dashboard', 'research', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view))
         };
         return groups;
     }, [modules]);
-
-    const SectionLabel: React.FC<{ label: string }> = ({ label }) => (
-        <div className="px-5 mt-6 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/50 flex items-center">
-            <span className="flex-grow bg-brand-light/10 h-[1px] mr-2"></span>
-            {label}
-        </div>
-    );
 
     return (
         <div className="w-64 bg-brand-secondary flex flex-col h-full border-r border-brand-accent/20 shadow-2xl">
@@ -208,7 +137,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
             <UserProfileHeader user={currentUser} onLogout={onLogout} />
 
             <div className="flex-grow overflow-y-auto custom-scrollbar py-2">
-                {/* Seletor de Município Compacto */}
                 {municipality && (
                     <div className="mx-4 mb-4 mt-2">
                         <div className="bg-brand-primary/40 rounded-lg border border-white/5 p-3 group relative hover:border-brand-blue/30 transition-colors">
@@ -225,26 +153,22 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
                     </div>
                 )}
 
-                {/* Navigation */}
                 <nav className="pb-4">
                     {isLoading ? (
                         <div className="mt-4 space-y-2">
-                            <SectionLabel label="Carregando Módulos..." />
-                            <ShimmerItem />
-                            <ShimmerItem />
-                            <ShimmerItem />
-                            <ShimmerItem />
+                            <SectionLabel label="Carregando..." />
+                            <ShimmerItem /> <ShimmerItem /> <ShimmerItem />
                         </div>
                     ) : (
                         <>
-                            <SectionLabel label="Estratégia" />
+                            {groupedModules.strategy.length > 0 && <SectionLabel label="Estratégia" />}
                             {groupedModules.strategy.map(m => <NavItem key={m.id} module={m} />)}
 
-                            <SectionLabel label="Entidades & Atores" />
+                            {groupedModules.entities.length > 0 && <SectionLabel label="Entidades & Atores" />}
                             {groupedModules.entities.map(m => <NavItem key={m.id} module={m} />)}
 
-                            <SectionLabel label="Inteligência de Dados" />
-                            {groupedModules.intel.map(m => <NavItem key={m.id} module={m} />)}
+                            {groupedModules.intelligence.length > 0 && <SectionLabel label="Inteligência de Dados" />}
+                            {groupedModules.intelligence.map(m => <NavItem key={m.id} module={m} />)}
 
                             {groupedModules.others.length > 0 && (
                                 <>
@@ -257,10 +181,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunic
                 </nav>
             </div>
 
-            {/* Quota Widget at Bottom */}
-            <QuotaWidget user={currentUser} />
-
-            {/* Footer Version */}
             <div className="px-4 pb-3 text-center border-t border-white/5 pt-3 bg-brand-secondary">
                 <p className="text-[10px] text-brand-light/40">S.I.E. Intelligence System v3.0.3</p>
             </div>

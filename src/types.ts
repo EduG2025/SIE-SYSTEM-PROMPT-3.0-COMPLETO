@@ -8,7 +8,24 @@ export type AdminViewType =
   | 'system'
   | 'modules'
   | 'data'
-  | 'datasources';
+  | 'datasources'
+  | 'updates'
+  | 'themes';
+
+export type ModuleCategory = 'strategy' | 'entities' | 'intelligence' | 'system';
+
+export interface Module {
+  id: string;
+  name: string;
+  view: ViewType;
+  icon: string;
+  active: boolean;
+  hasSettings?: boolean;
+  rules?: string; 
+  updateFrequency?: string; // Alterado de tipo complexo para string simples para compatibilidade
+  lastUpdate?: string; 
+  category?: ModuleCategory; // Novo campo para organização do menu
+}
 
 // --- Tipos para o novo Módulo de Análise Política ---
 
@@ -374,20 +391,6 @@ export interface AiAutomationSettings {
   frequency: 'daily' | 'weekly' | 'monthly';
   lastRun?: string;
   lastRunResult?: string;
-}
-
-export type UpdateFrequency = 'realtime' | '1h' | '6h' | '12h' | '24h' | 'weekly';
-
-export interface Module {
-  id: string;
-  name: string;
-  view: ViewType;
-  icon: string;
-  active: boolean;
-  hasSettings?: boolean;
-  rules?: string; 
-  updateFrequency?: UpdateFrequency;
-  lastUpdate?: string; 
 }
 
 export interface LogEntry {

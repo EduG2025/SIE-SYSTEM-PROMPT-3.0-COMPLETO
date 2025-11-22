@@ -25,9 +25,9 @@ import {
 
 // --- MOCK DATA FALLBACKS ---
 const initialPlans: UserPlan[] = [
-    { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
-    { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
-    { id: 'enterprise', name: 'Enterprise', features: ['ai_analysis', 'advanced_search', 'data_export', 'own_api_key', 'priority_support'], modules: ['dashboard', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr', 'research'], requestLimit: -1 }
+    { id: 'starter', name: 'Starter', features: [], modules: ['mod-dash'], requestLimit: 100 },
+    { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['mod-dash', 'mod-poli', 'mod-func', 'mod-soci'], requestLimit: 500 },
+    { id: 'enterprise', name: 'Enterprise', features: ['ai_analysis', 'advanced_search', 'data_export', 'own_api_key', 'priority_support'], modules: ['mod-dash', 'mod-poli', 'mod-func', 'mod-empr', 'mod-cont', 'mod-judi', 'mod-soci', 'mod-time', 'mod-res', 'mod-ocr'], requestLimit: -1 }
 ];
 
 const initialFeatures: Feature[] = [
@@ -232,6 +232,24 @@ class DbService {
         }
     }
 
+    // --- User Modules Relationship (FIXED) ---
+    async getUserActiveModules(user: User): Promise<Module[]> {
+        await this.ensureReady();
+        
+        // 1. Admin Safety Net: Admins sempre veem tudo que está ativo
+        if (user.role === 'admin') {
+            return this.data!.modules.filter(m => m.active);
+        }
+
+        // 2. Normal Users: Filter by Plan
+        const plan = this.data!.plans.find(p => p.id === user.planId);
+        const allowedModuleIds = plan ? plan.modules : [];
+        
+        return this.data!.modules.filter(m => 
+            m.active && (allowedModuleIds.includes(m.id) || allowedModuleIds.includes(m.view))
+        );
+    }
+    
     // --- Theme & Homepage (Persistência Real no Backend) ---
     async getTheme(): Promise<ThemeConfig> { 
         await this.ensureReady();
@@ -382,7 +400,6 @@ class DbService {
     async saveUser(user: User, adminUsername: string) { await this.ensureReady(); const idx = this.data!.users.findIndex(u => u.id === user.id); if(idx >= 0) this.data!.users[idx] = user; else this.data!.users.push(user); await this.persistState(); }
     async deleteUser(id: number, adminUsername: string) { await this.ensureReady(); this.data!.users = this.data!.users.filter(u => u.id !== id); await this.persistState(); return true; }
     async updateUserProfile(id: number, updates: any) { await this.ensureReady(); const u = this.data!.users.find(x => x.id === id); if(u) Object.assign(u, updates); await this.persistState(); return u!; }
-    async getUserActiveModules(user: User): Promise<Module[]> { await this.ensureReady(); return this.data!.modules; } 
     async checkUserFeatureAccess(userId: number, key: FeatureKey) { return true; }
     async saveUserApiKey(id: number, key: string) { /* ... */ }
     async removeUserApiKey(id: number) { /* ... */ }
