@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Banco de Dados (Se não usar o da VPS)
+  db:
+    image: mysql:8.0
+    container_name: sie_mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+
+  # Backend API
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: sie_backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./storage:/app/storage
+    ports:
+      - "3000:3000"
+
+  # Frontend (Servido via Nginx interno do container ou mapeado)
+  # Nota: Em produção CloudPanel, usamos o Nginx da VPS, mas este container serve para testes isolados
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: sie_frontend
+    restart: always
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:

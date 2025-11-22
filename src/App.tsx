@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
@@ -64,13 +63,12 @@ const AppContent: React.FC = () => {
   const authContextValue = useMemo(() => ({ currentUser, setCurrentUser }), [currentUser]);
   const municipalityContextValue = useMemo(() => ({ municipalities, setMunicipalities }), [municipalities]);
 
-  // Sync modules when user permissions change
   useEffect(() => {
     const syncModules = async () => {
         setIsLoadingModules(true);
         if (currentUser) {
             try {
-                await new Promise(r => setTimeout(r, 500)); // Small UX delay for smooth transition
+                await new Promise(r => setTimeout(r, 500));
                 const modules = await dbService.getUserActiveModules(currentUser);
                 setActiveModules(modules);
             } catch (e) {
@@ -85,7 +83,6 @@ const AppContent: React.FC = () => {
     syncModules();
   }, [currentUser?.id, currentUser?.role, currentUser?.planId]);
 
-  // Persist municipality selection
   useEffect(() => {
     if (municipality) {
       localStorage.setItem('selectedMunicipality', municipality);
@@ -145,7 +142,6 @@ const AppContent: React.FC = () => {
       }
   };
   
-  // Logic to prevent access to modules not allowed by plan
   const renderUserRoutes = () => {
     const currentPath = location.pathname.split('/')[1] || 'dashboard';
     

@@ -8,12 +8,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: false,
-    chunkSizeWarningLimit: 1600
+    sourcemap: false, // Desativa sourcemaps em produção para segurança/tamanho
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+        output: {
+            // Code Splitting: Separa bibliotecas pesadas em arquivos diferentes
+            manualChunks: {
+                'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+                'vendor-ui': ['recharts', 'lucide-react', 'framer-motion'],
+                'vendor-utils': ['axios', 'date-fns', 'lodash', 'uuid'],
+                'vendor-ai': ['@google/genai']
+            }
+        }
+    }
   },
   resolve: {
     alias: {
-      '@': path.resolve(process.cwd(), './src'),
+      '@': path.resolve('./src'),
     },
   },
 });

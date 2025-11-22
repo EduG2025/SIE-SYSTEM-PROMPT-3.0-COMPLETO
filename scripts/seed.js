@@ -1,9 +1,10 @@
 
 /**
  * script/seed.js
- * Popula o banco de dados com dados iniciais essenciais para o funcionamento do S.I.E. 3.0.3
+ * Popula o banco de dados com dados iniciais essenciais para o funcionamento do S.I.E. 3.1.0
  */
 
+require('dotenv').config();
 const { 
     sequelize, User, Module, SystemSetting, Plan 
 } = require('../src/models');
@@ -19,7 +20,7 @@ async function seed() {
 
         console.log('🌱 Iniciando Seeding...');
 
-        // 1. Criar Planos (IDs Corrigidos para bater com os módulos abaixo)
+        // 1. Criar Planos
         const plans = [
             { 
                 id: 'starter', 
@@ -33,7 +34,7 @@ async function seed() {
                 name: 'Pro', 
                 requestLimit: 500, 
                 features: ['ai_analysis'], 
-                modules: ['mod-dash', 'mod-poli', 'mod-func'] 
+                modules: ['mod-dash', 'mod-poli', 'mod-func', 'mod-soci'] 
             },
             { 
                 id: 'enterprise', 
@@ -49,25 +50,38 @@ async function seed() {
         }
         console.log('✅ Planos criados.');
 
-        // 2. Criar Usuário Admin Padrão
-        const adminPassword = await bcrypt.hash('admin123', 10);
-        const [admin, createdAdmin] = await User.findOrCreate({
+        // 2. Criar Usuários
+        const commonPassword = await bcrypt.hash('123456', 10);
+        
+        // Admin
+        await User.findOrCreate({
             where: { username: 'admin' },
             defaults: {
                 email: 'admin@sie.system',
-                password: adminPassword,
+                password: commonPassword,
                 role: 'admin',
                 status: 'Ativo',
                 planId: 'enterprise'
             }
         });
-        
-        if(createdAdmin) console.log('✅ Usuário Admin criado: admin / admin123');
-        else console.log('ℹ️ Usuário Admin já existe.');
+        console.log('✅ Usuário Admin verificado (admin / 123456).');
+
+        // Usuário Padrão (Para Testes de Fluxo D)
+        await User.findOrCreate({
+            where: { username: 'jornalista' },
+            defaults: {
+                email: 'user@teste.com',
+                password: commonPassword,
+                role: 'user',
+                status: 'Ativo',
+                planId: 'pro'
+            }
+        });
+        console.log('✅ Usuário Padrão verificado (jornalista / 123456).');
 
         // 3. Criar Configurações Iniciais
         const configs = [
-            { key: 'version', value: { version: '3.0.3' }, description: 'System Version' },
+            { key: 'version', value: { version: '3.1.0' }, description: 'System Version' },
             { 
                 key: 'theme_config', 
                 value: { primary: '#0D1117', secondary: '#161B22', accent: '#30363D', text: '#E6EDF3', blue: '#3B82F6' },
@@ -88,9 +102,9 @@ async function seed() {
         for (const conf of configs) {
             await SystemSetting.upsert(conf);
         }
-        console.log('✅ Configurações do Sistema (v3.0.3) aplicadas.');
+        console.log('✅ Configurações do Sistema aplicadas.');
 
-        // 4. Criar Módulos Padrão (IDs e Views alinhados)
+        // 4. Criar Módulos Padrão
         const modules = [
             { id: 'mod-dash', name: 'Dashboard', view: 'dashboard', icon: 'dashboard', active: true, hasSettings: true },
             { id: 'mod-poli', name: 'Político', view: 'political', icon: 'political', active: true, hasSettings: true },
@@ -109,7 +123,7 @@ async function seed() {
         }
         console.log('✅ Módulos Padrão instalados.');
 
-        console.log('🚀 SEED CONCLUÍDO COM SUCESSO! O Sistema está pronto para uso.');
+        console.log('🚀 SEED CONCLUÍDO COM SUCESSO!');
         process.exit(0);
 
     } catch (error) {
