@@ -1,11 +1,10 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import type { Module, User } from '../types';
-import { dbService } from '../services/dbService';
 import { useAuth } from '../contexts/AuthContext';
 
-const { NavLink, useLocation, Link } = ReactRouterDOM as any;
+const { NavLink, Link } = ReactRouterDOM as any;
 
 interface SidebarProps {
   onLogout: () => void;
@@ -15,14 +14,9 @@ interface SidebarProps {
   isLoading?: boolean;
 }
 
-// --- Subcomponents ---
-
-const ShimmerItem = () => (
-    <div className="flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg">
-        <div className="w-5 h-5 rounded bg-brand-accent/50 animate-pulse mr-3"></div>
-        <div className="h-4 bg-brand-accent/50 rounded w-24 animate-pulse"></div>
-    </div>
-);
+// --- Icons ---
+const ChevronLeftIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>;
+const ChevronRightIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>;
 
 const ModuleIcon: React.FC<{ iconKey: string; className: string }> = ({ iconKey, className }) => {
     const icons: Record<string, React.ReactNode> = {
@@ -40,149 +34,137 @@ const ModuleIcon: React.FC<{ iconKey: string; className: string }> = ({ iconKey,
     return icons[iconKey] || <div className={className} />;
 };
 
-const NavItem: React.FC<{ module: Module }> = ({ module }) => {
+const NavItem: React.FC<{ module: Module; collapsed: boolean }> = ({ module, collapsed }) => {
     const { view, icon, name } = module;
     const iconClass = "w-5 h-5";
-    const location = useLocation();
-    const isActive = location.pathname === `/${view}` || location.pathname.startsWith(`/${view}/`);
-
+    
     return (
         <NavLink
             to={`/${view}`}
-            className={`group flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg transition-all duration-300 text-sm font-medium relative overflow-hidden ${
+            className={({ isActive }: { isActive: boolean }) => `group flex items-center px-3 py-2.5 my-1 mx-2 rounded-lg transition-all duration-200 text-sm font-medium relative overflow-hidden ${
                 isActive
-                    ? 'bg-gradient-to-r from-brand-blue/90 to-brand-blue/70 text-white shadow-md'
+                    ? 'bg-brand-blue text-white shadow-lg shadow-blue-500/20'
                     : 'text-brand-light hover:bg-white/5 hover:text-white'
-            }`}
-            title={name}
+            } ${collapsed ? 'justify-center' : ''}`}
+            title={collapsed ? name : ''}
         >
-            {isActive && <div className="absolute inset-0 bg-white/10 mix-blend-overlay"></div>}
-            <ModuleIcon iconKey={icon} className={`${iconClass} mr-3 flex-shrink-0 transition-transform group-hover:scale-110`} />
-            <span className="truncate relative z-10">{name}</span>
+            <ModuleIcon iconKey={icon} className={`${iconClass} flex-shrink-0 transition-transform group-hover:scale-110 ${!collapsed && 'mr-3'}`} />
             
-            {isActive && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)] relative z-10"></div>
+            {!collapsed && (
+                <span className="truncate relative z-10">{name}</span>
             )}
         </NavLink>
     );
 };
 
-// Perfil Compacto no Topo
-const UserProfileHeader: React.FC<{ user: User | null; onLogout: () => void }> = ({ user, onLogout }) => {
-    if (!user) return null;
-    const initial = user.username?.[0]?.toUpperCase() || 'U';
-
-    return (
-        <div className="p-4 border-b border-white/10 bg-gradient-to-b from-brand-secondary to-brand-primary">
-            <div className="flex items-center gap-3">
-                <Link to="/settings" className="relative group flex-shrink-0">
-                    <div className="w-10 h-10 rounded-full bg-brand-accent border border-white/10 flex items-center justify-center overflow-hidden group-hover:ring-2 group-hover:ring-brand-blue transition-all shadow-lg">
-                         {user.avatarUrl ? (
-                            <img src={user.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                            <span className="font-bold text-white text-lg">{initial}</span>
-                        )}
-                    </div>
-                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-brand-primary rounded-full"></div>
-                </Link>
-                <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate group-hover:text-brand-blue transition-colors cursor-default">{user.username}</p>
-                    <p className="text-xs text-brand-light truncate capitalize">{user.role}</p>
-                </div>
-                <button 
-                    onClick={onLogout} 
-                    className="p-1.5 rounded-md text-brand-light/70 hover:text-red-400 hover:bg-red-500/10 transition-all" 
-                    title="Sair com segurança"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const SectionLabel: React.FC<{ label: string }> = ({ label }) => (
-    <div className="px-5 mt-6 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/50 flex items-center">
-        <span className="flex-grow bg-brand-light/10 h-[1px] mr-2"></span>
-        {label}
-    </div>
-);
-
 const Sidebar: React.FC<SidebarProps> = ({ onLogout, municipality, onChangeMunicipality, modules, isLoading = false }) => {
     const { currentUser } = useAuth();
+    const [collapsed, setCollapsed] = useState(false);
 
-    // Agrupamento Lógico de Módulos usando a nova propriedade 'category'
-    const groupedModules = useMemo(() => {
-        const groups = {
-            strategy: modules.filter(m => m.category === 'strategy' || ['dashboard', 'research'].includes(m.view)),
-            entities: modules.filter(m => m.category === 'entities' || ['political', 'employees', 'companies'].includes(m.view)),
-            intelligence: modules.filter(m => m.category === 'intelligence' || ['contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view)),
-            others: modules.filter(m => !m.category && !['dashboard', 'research', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr'].includes(m.view))
+    const toggleSidebar = () => setCollapsed(!collapsed);
+
+    // Agrupamento dinâmico
+    const grouped = useMemo(() => {
+        return {
+            main: modules.filter(m => ['dashboard', 'research', 'political'].includes(m.view)),
+            entities: modules.filter(m => ['employees', 'companies', 'contracts'].includes(m.view)),
+            intel: modules.filter(m => ['judicial', 'social', 'timeline', 'ocr'].includes(m.view))
         };
-        return groups;
     }, [modules]);
 
     return (
-        <div className="w-64 bg-brand-secondary flex flex-col h-full border-r border-brand-accent/20 shadow-2xl">
-            {/* Logo Section */}
-            <div className="flex items-center justify-center h-16 border-b border-white/5 flex-shrink-0 bg-brand-secondary/50 backdrop-blur">
+        <div className={`${collapsed ? 'w-20' : 'w-64'} bg-brand-secondary flex flex-col h-full border-r border-brand-accent/20 shadow-2xl transition-all duration-300 relative z-50`}>
+            
+            {/* Collapse Toggle */}
+            <button 
+                onClick={toggleSidebar}
+                className="absolute -right-3 top-8 bg-brand-primary border border-brand-accent text-brand-light hover:text-white rounded-full p-1 shadow-md z-50 transition-transform hover:scale-110 hidden md:flex items-center justify-center"
+            >
+                {collapsed ? <ChevronRightIcon className="w-3 h-3" /> : <ChevronLeftIcon className="w-3 h-3" />}
+            </button>
+
+            {/* Header / Logo */}
+            <div className="flex items-center justify-center h-16 border-b border-white/5 flex-shrink-0 bg-brand-secondary/50 backdrop-blur overflow-hidden">
                 <div className="flex items-center">
-                    <div className="bg-gradient-to-br from-brand-blue to-brand-purple p-1.5 rounded-lg shadow-lg shadow-blue-500/20 mr-3">
+                    <div className="bg-gradient-to-br from-brand-blue to-brand-purple p-1.5 rounded-lg shadow-lg mr-0 md:mr-2 flex-shrink-0">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     </div>
-                    <h1 className="text-lg font-bold tracking-tight text-white">S.I.E. <span className="text-brand-cyan text-xs bg-brand-cyan/10 px-1 py-0.5 rounded ml-1 border border-brand-cyan/20">3.0.3</span></h1>
+                    {!collapsed && (
+                        <h1 className="text-lg font-bold tracking-tight text-white whitespace-nowrap animate-fade-in-up">S.I.E. <span className="text-brand-cyan text-xs px-1 rounded border border-brand-cyan/30 ml-1">3.1</span></h1>
+                    )}
                 </div>
             </div>
 
-            <UserProfileHeader user={currentUser} onLogout={onLogout} />
+            {/* User Mini Profile */}
+            <div className={`p-4 border-b border-white/5 transition-all ${collapsed ? 'px-2 flex justify-center' : ''}`}>
+                <div className={`flex items-center gap-3 ${collapsed ? 'flex-col' : ''}`}>
+                    <Link to="/settings" className="relative group flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-brand-accent flex items-center justify-center overflow-hidden border border-white/10 group-hover:border-brand-blue transition-colors">
+                             {currentUser?.avatarUrl ? (
+                                <img src={currentUser.avatarUrl} alt="User" className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="font-bold text-white">{currentUser?.username?.[0]?.toUpperCase()}</span>
+                            )}
+                        </div>
+                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-brand-secondary rounded-full"></div>
+                    </Link>
+                    
+                    {!collapsed && (
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                            <p className="text-sm font-bold text-white truncate">{currentUser?.username}</p>
+                            <p className="text-xs text-brand-light truncate capitalize">{currentUser?.role}</p>
+                        </div>
+                    )}
+                </div>
+            </div>
 
-            <div className="flex-grow overflow-y-auto custom-scrollbar py-2">
+            {/* Scrollable Content */}
+            <div className="flex-grow overflow-y-auto custom-scrollbar py-4 space-y-6">
+                {/* Municipality Selector */}
                 {municipality && (
-                    <div className="mx-4 mb-4 mt-2">
-                        <div className="bg-brand-primary/40 rounded-lg border border-white/5 p-3 group relative hover:border-brand-blue/30 transition-colors">
-                             <p className="text-[10px] text-brand-light uppercase mb-0.5 font-bold">Jurisdição Ativa</p>
-                             <p className="font-semibold text-white text-sm truncate pr-6 text-shadow" title={municipality}>{municipality}</p>
-                             <button 
-                                onClick={onChangeMunicipality}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-brand-light hover:text-white bg-white/5 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-brand-blue"
-                                title="Trocar Município"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                            </button>
+                    <div className={`mx-3 ${collapsed ? 'flex justify-center' : ''}`}>
+                        <div className={`bg-brand-primary/50 rounded-lg border border-white/5 p-2 group relative hover:border-brand-blue/30 transition-colors cursor-pointer ${collapsed ? 'w-10 h-10 flex items-center justify-center' : ''}`} onClick={onChangeMunicipality}>
+                             {!collapsed ? (
+                                 <div>
+                                     <p className="text-[10px] text-brand-light uppercase font-bold mb-0.5">Analisando</p>
+                                     <p className="font-semibold text-white text-sm truncate">{municipality}</p>
+                                 </div>
+                             ) : (
+                                 <span className="font-bold text-brand-cyan text-xs" title={municipality}>{municipality.substring(0, 2).toUpperCase()}</span>
+                             )}
                         </div>
                     </div>
                 )}
 
-                <nav className="pb-4">
+                {/* Navigation Groups */}
+                <nav className="space-y-1">
                     {isLoading ? (
-                        <div className="mt-4 space-y-2">
-                            <SectionLabel label="Carregando..." />
-                            <ShimmerItem /> <ShimmerItem /> <ShimmerItem />
-                        </div>
+                        <div className="px-4 text-brand-light text-xs animate-pulse">Carregando...</div>
                     ) : (
                         <>
-                            {groupedModules.strategy.length > 0 && <SectionLabel label="Estratégia" />}
-                            {groupedModules.strategy.map(m => <NavItem key={m.id} module={m} />)}
+                            {!collapsed && <div className="px-5 mb-2 text-[10px] font-bold uppercase tracking-wider text-brand-light/40">Estratégia</div>}
+                            {grouped.main.map(m => <NavItem key={m.id} module={m} collapsed={collapsed} />)}
 
-                            {groupedModules.entities.length > 0 && <SectionLabel label="Entidades & Atores" />}
-                            {groupedModules.entities.map(m => <NavItem key={m.id} module={m} />)}
+                            {!collapsed && <div className="px-5 mb-2 mt-6 text-[10px] font-bold uppercase tracking-wider text-brand-light/40">Entidades</div>}
+                            {grouped.entities.map(m => <NavItem key={m.id} module={m} collapsed={collapsed} />)}
 
-                            {groupedModules.intelligence.length > 0 && <SectionLabel label="Inteligência de Dados" />}
-                            {groupedModules.intelligence.map(m => <NavItem key={m.id} module={m} />)}
-
-                            {groupedModules.others.length > 0 && (
-                                <>
-                                     <SectionLabel label="Outros" />
-                                     {groupedModules.others.map(m => <NavItem key={m.id} module={m} />)}
-                                </>
-                            )}
+                            {!collapsed && <div className="px-5 mb-2 mt-6 text-[10px] font-bold uppercase tracking-wider text-brand-light/40">Inteligência</div>}
+                            {grouped.intel.map(m => <NavItem key={m.id} module={m} collapsed={collapsed} />)}
                         </>
                     )}
                 </nav>
             </div>
 
-            <div className="px-4 pb-3 text-center border-t border-white/5 pt-3 bg-brand-secondary">
-                <p className="text-[10px] text-brand-light/40">S.I.E. Intelligence System v3.0.3</p>
+            {/* Footer Actions */}
+            <div className={`p-3 border-t border-white/5 ${collapsed ? 'flex flex-col items-center' : ''}`}>
+                <button 
+                    onClick={onLogout}
+                    className={`flex items-center w-full p-2 rounded-lg text-brand-light hover:bg-red-500/10 hover:text-red-400 transition-colors ${collapsed ? 'justify-center' : ''}`}
+                    title="Sair"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                    {!collapsed && <span className="ml-3 text-sm font-medium">Encerrar Sessão</span>}
+                </button>
             </div>
         </div>
     );

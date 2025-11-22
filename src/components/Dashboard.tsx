@@ -51,8 +51,6 @@ const WIDGET_LAYOUT_CONFIG: Record<string, string> = {
     data_sources: "md:col-span-6",
 };
 
-// SKELETON VISUAL APRIMORADO
-// Simula a estrutura exata dos widgets para evitar "layout shift"
 const WidgetSkeleton = () => (
     <div className="h-full w-full min-h-[240px] bg-brand-secondary p-6 rounded-lg shadow-lg border border-brand-accent/30 flex flex-col animate-pulse">
         <div className="flex items-center mb-6">
@@ -130,7 +128,7 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
                 const diff = next - now;
 
                 if (diff <= 0) {
-                    setNextUpdateLabel("Atualizando agora...");
+                    setNextUpdateLabel("Atualizando...");
                     if (!isRefreshing && !isInitialLoading) fetchData(false);
                 } else {
                     const mins = Math.floor(diff / 60000);
@@ -177,7 +175,6 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
     };
 
     const renderWidgetContent = (widgetId: string) => {
-        // Mostra Skeleton se estiver carregando E sem dados prévios
         if (isInitialLoading && !data) return <WidgetSkeleton />;
 
         return (
@@ -221,23 +218,38 @@ const Dashboard: React.FC<DashboardProps> = ({ municipality }) => {
                 <div>
                     <h2 className="text-3xl font-bold text-white tracking-tight">Dashboard de Análise</h2>
                     <p className="text-brand-light mt-1">Visão estratégica para: <span className="font-semibold text-brand-cyan">{municipality}</span></p>
+                    
                     {data?.lastAnalysis && (
-                        <div className="mt-2 inline-flex items-center bg-brand-secondary/80 border border-brand-accent rounded-md px-3 py-1.5 shadow-sm">
-                            <span className="text-[10px] text-brand-light uppercase font-bold tracking-wider mr-2">Próxima Atualização:</span>
-                            <span className={`text-xs font-mono font-bold ${nextUpdateLabel.includes('agora') ? 'text-brand-blue animate-pulse' : 'text-green-400'}`}>{nextUpdateLabel}</span>
+                        <div className="mt-3 flex items-center gap-3 bg-brand-secondary/80 border border-brand-accent rounded-full pl-2 pr-4 py-1.5 shadow-sm w-fit">
+                            <button 
+                                onClick={() => fetchData(true)} 
+                                disabled={isInitialLoading || isRefreshing}
+                                className="p-2 bg-brand-blue hover:bg-blue-600 text-white rounded-full shadow-md transition-all disabled:opacity-50 hover:scale-105 group"
+                                title="Forçar Atualização IA Agora"
+                            >
+                                <RefreshIcon className={`h-4 w-4 group-hover:rotate-180 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            </button>
+                            
+                            <div className="flex flex-col leading-none">
+                                <div className="flex items-center text-[10px] text-brand-light uppercase font-bold tracking-wider mb-0.5">
+                                    <span>Última Análise:</span>
+                                    <span className="ml-1 text-white font-mono">{new Date(data.lastAnalysis).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <div className="flex items-center text-[10px] text-brand-light uppercase font-bold tracking-wider">
+                                    <span>Próxima:</span>
+                                    <span className={`ml-1 font-mono ${nextUpdateLabel.includes('Atualizando') ? 'text-brand-blue animate-pulse' : 'text-green-400'}`}>{nextUpdateLabel}</span>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <button onClick={toggleEditMode} className={`flex items-center text-sm font-semibold py-2 px-4 rounded-lg transition-all shadow-sm ${isEditMode ? 'bg-green-600 text-white' : 'bg-brand-secondary text-brand-light hover:text-white'}`}>
-                        {isEditMode ? <><SaveIcon className="mr-2" /> Salvar</> : <><EditIcon className="mr-2" /> Personalizar</>}
-                    </button>
-                    <button onClick={() => fetchData(true)} disabled={isInitialLoading || isRefreshing} className="flex items-center bg-brand-accent hover:bg-brand-blue text-white text-sm font-semibold py-2 px-4 rounded-lg transition-all disabled:opacity-50 shadow-sm group">
-                        <RefreshIcon className={`mr-2 group-hover:rotate-180 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : ''}`} />
-                        {isRefreshing ? 'Atualizando...' : 'Atualizar Dados (IA)'}
+                        {isEditMode ? <><SaveIcon className="mr-2" /> Salvar Layout</> : <><EditIcon className="mr-2" /> Personalizar</>}
                     </button>
                 </div>
             </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                 {widgets.map((widget, index) => {
                     if (!widget.visible) return null;
