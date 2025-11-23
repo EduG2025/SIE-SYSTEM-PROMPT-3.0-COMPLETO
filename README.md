@@ -12,7 +12,43 @@ O S.I.E. opera em uma arquitetura **Híbrida (SPA + API)** otimizada para segura
 
 ---
 
-### 2. Scripts de Infraestrutura (VPS)
+### 2. Configuração do Nginx (Vhost na VPS/CloudPanel)
+
+**CRÍTICO:** Para que o sistema funcione em produção, você deve configurar o proxy reverso no Nginx. Sem isso, o Frontend não conseguirá falar com o Backend e dará erro de conexão.
+
+No CloudPanel, vá em **Sites > Gerenciar > Vhost** e adicione o bloco `location /api` dentro da configuração `server`:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name seu-dominio.com;
+    root /home/usuario-site/htdocs/seu-dominio.com/dist; # Aponta para a pasta dist gerada pelo build
+    index index.html;
+
+    # 1. Configuração do Frontend (React Router)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 2. Configuração do Backend (Proxy Reverso)
+    # Isso faz o papel do "server.proxy" do Vite em produção
+    location /api {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+    
+    # ... resto das configurações SSL/Logs do CloudPanel ...
+}
+```
+
+---
+
+### 3. Scripts de Infraestrutura (VPS)
 
 Estes scripts localizados na raiz do projeto automatizam a manutenção do servidor.
 
@@ -45,7 +81,7 @@ dos2unix deploy.sh && chmod +x deploy.sh && ./deploy.sh
 
 ---
 
-### 3. Fluxo de Trabalho Git (Atualização do Sistema)
+### 4. Fluxo de Trabalho Git (Atualização do Sistema)
 
 Para aplicar mudanças feitas localmente ou geradas pela IA:
 
@@ -68,7 +104,7 @@ Você tem duas opções:
 
 ---
 
-### 4. Configuração de Banco de Dados e .env
+### 5. Configuração de Banco de Dados e .env
 As credenciais do banco de dados são gerenciadas pelo `setup.sh`. Se precisar alterá-las manualmente:
 
 1.  Edite o `setup.sh` com as novas senhas.
@@ -80,7 +116,7 @@ Coluna: `data` (JSON) -> Contém todo o estado da aplicação (Usuários, Config
 
 ---
 
-### 5. Solução de Problemas Comuns
+### 6. Solução de Problemas Comuns
 
 **Erro: "Unexpected token <" ou Tela Branca**
 *   **Causa:** O Nginx não está redirecionando a API corretamente.

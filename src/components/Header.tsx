@@ -4,6 +4,7 @@ import * as ReactRouterDOM from 'react-router-dom';
 import type { Module } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { dbService } from '../services/dbService';
+import { useNotification } from '../contexts/NotificationContext';
 
 const { useLocation, Link } = ReactRouterDOM as any;
 
@@ -13,6 +14,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ modules }) => {
   const { currentUser } = useAuth();
+  const { notify } = useNotification();
   const location = useLocation();
   
   const pathParts = location.pathname.split('/');
@@ -29,27 +31,47 @@ const Header: React.FC<HeaderProps> = ({ modules }) => {
   }
 
   // Sync Status Monitoring
-  const [syncStatus, setSyncStatus] = useState<'Conectado' | 'Desconectado' | 'Sincronizando' | 'Erro'>('Desconectado');
+  const [syncStatus, setSyncStatus] = useState<'Conectado' | 'Desconectado' | 'Sincronizando' | 'Erro' | 'Falha'>('Desconectado');
+
+  const checkSync = async () => {
+      setSyncStatus('Sincronizando');
+      const config = await dbService.testConnection(); 
+      setSyncStatus(config.status as any);
+      
+      if (config.status !== 'Conectado') {
+          console.error("Sync Error:", config.details);
+          notify(`Conexão perdida: ${config.details}`, 'error');
+      } else {
+          // notify('Conexão restaurada.', 'success');
+      }
+      return config;
+  };
 
   useEffect(() => {
-      const checkSync = async () => {
-          const config = await dbService.testConnection(); // Check real status
-          setSyncStatus(config.status as any);
-      };
-      
       checkSync();
-      const interval = setInterval(checkSync, 10000); // Poll status
+      const interval = setInterval(() => {
+          dbService.testConnection().then(c => setSyncStatus(c.status as any));
+      }, 30000); 
       return () => clearInterval(interval);
   }, []);
+
+  const handleManualSync = async () => {
+      const result = await checkSync();
+      if (result.status === 'Conectado') {
+          notify(`Conexão estabelecida: ${result.details}`, 'success');
+      }
+  };
 
   const getSyncIcon = () => {
       switch(syncStatus) {
           case 'Conectado':
               return <span className="text-brand-green text-xs font-bold flex items-center gap-1" title="Sincronizado com a Nuvem"><span className="w-2 h-2 rounded-full bg-brand-green animate-pulse"></span> ONLINE</span>;
           case 'Sincronizando':
-              return <span className="text-brand-yellow animate-pulse" title="Enviando dados...">🔄</span>;
+              return <span className="text-brand-yellow animate-pulse" title="Verificando conexão...">🔄</span>;
           case 'Erro':
-              return <span className="text-brand-red text-xs font-bold" title="Erro de Sincronização">OFFLINE</span>;
+          case 'Falha':
+          case 'Desconectado':
+              return <span className="text-brand-red text-xs font-bold flex items-center gap-1" title="Clique para reconectar"><span className="w-2 h-2 rounded-full bg-brand-red"></span> OFFLINE (Retry)</span>;
           default:
               return <span className="text-brand-light opacity-30" title="Modo Local (Offline)">☁️</span>;
       }
@@ -63,9 +85,12 @@ const Header: React.FC<HeaderProps> = ({ modules }) => {
       
       <div className="flex items-center gap-2 md:gap-4">
         {/* Indicador de Sync */}
-        <div className="hidden md:flex items-center mr-2 bg-brand-primary/50 px-3 py-1 rounded-full border border-brand-accent/30">
+        <button 
+            onClick={handleManualSync}
+            className={`hidden md:flex items-center mr-2 px-3 py-1 rounded-full border transition-colors cursor-pointer ${syncStatus === 'Conectado' ? 'bg-brand-primary/50 border-brand-accent/30 hover:bg-brand-primary' : 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20'}`}
+        >
              {getSyncIcon()}
-        </div>
+        </button>
 
         <div className="relative hidden md:block">
           <input

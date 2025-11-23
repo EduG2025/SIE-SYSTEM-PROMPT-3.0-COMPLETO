@@ -1,73 +1,237 @@
-# Manual de Instalação e Execução via Docker
+# Manual de Infraestrutura Docker - S.I.E.
 
-Este guia cobre como rodar o S.I.E. usando containers Docker. Isso garante que o sistema funcione exatamente da mesma forma no seu Windows e na VPS, eliminando erros de "funciona na minha máquina".
-
-## 1. Estrutura dos Arquivos
-
-*   **`docker-compose.yml`**: O arquivo principal. Ele define 3 serviços:
-    1.  `db`: Banco de Dados MySQL 8.0.
-    2.  `backend`: Sua API Node.js (Porta 3000 interna).
-    3.  `frontend`: Seu site React servido pelo Nginx (Porta 80 pública).
-*   **`Dockerfile`**: Receita para criar a imagem do Backend.
-*   **`Dockerfile.web`**: Receita para criar a imagem do Frontend (faz o build do React e configura o Nginx).
-*   **`nginx.conf`**: Configuração do servidor web interno do Docker.
+Este documento contém o código fonte exato para todos os arquivos de infraestrutura necessários para rodar o sistema via Docker.
 
 ---
 
-## 2. Rodando no Windows (Localhost)
+## 1. Arquivo de Orquestração (`docker-compose.yml`)
+Salvel este código como **`docker-compose.yml`** na raiz do projeto.
 
-**Pré-requisitos:**
-*   Instalar o [Docker Desktop para Windows](https://www.docker.com/products/docker-desktop/).
-*   O Docker Desktop deve estar aberto e rodando (ícone da baleia perto do relógio).
+```yaml
+version: '3.8'
 
-**Passo a Passo:**
+services:
+  # 1. Banco de Dados MySQL
+  db:
+    image: mysql:8.0
+    container_name: sie_db_container
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: sie_datalake
+      MYSQL_USER: sie_user
+      MYSQL_PASSWORD: sie_password
+    volumes:
+      - sie_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - sie_network
 
-1.  Abra a pasta do projeto.
-2.  Dê um **duplo clique** no arquivo `start_with_docker.bat`.
-3.  Uma janela preta (terminal) vai abrir e começar a baixar e configurar tudo.
-4.  Aguarde até aparecer "Containers iniciados!".
-5.  Acesse no navegador: **`http://localhost`**
+  # 2. Backend API (Node.js)
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: sie_backend_container
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DB_HOST=db
+      - DB_USER=sie_user
+      - DB_PASSWORD=sie_password
+      - DB_NAME=sie_datalake
+      - PORT=3000
+      - JWT_SECRET=sie_docker_secure_secret
+      # A API Key do Google deve ser passada via arquivo .env na raiz ou substituída aqui
+      - API_KEY=${API_KEY}
+    expose:
+      - "3000"
+    networks:
+      - sie_network
 
-**Comandos Úteis (se preferir usar terminal):**
-*   Iniciar: `docker-compose up -d --build`
-*   Parar: `docker-compose down`
-*   Ver logs: `docker-compose logs -f`
+  # 3. Frontend Web (Nginx + React)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: sie_frontend_container
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - sie_network
+
+volumes:
+  sie_mysql_data:
+
+networks:
+  sie_network:
+    driver: bridge
+```
 
 ---
 
-## 3. Rodando na VPS (Produção)
+## 2. Container do Backend (`Dockerfile`)
+Salvel este código como **`Dockerfile`** (sem extensão) na raiz.
 
-**Pré-requisitos:**
-*   Acesso SSH à VPS.
-*   Docker e Docker Compose instalados na VPS (O script `deploy_vps_docker.sh` tenta instalar automaticamente).
+```dockerfile
+# Imagem base leve do Node.js
+FROM node:18-alpine
 
-**Passo a Passo:**
+# Diretório de trabalho no container
+WORKDIR /app
 
-1.  Envie os arquivos do projeto para a VPS (via ZIP ou Git).
-2.  Acesse a pasta do projeto via SSH.
-3.  Dê permissão de execução ao script de deploy:
-    ```bash
-    chmod +x deploy_vps_docker.sh
-    ```
-4.  Execute o script:
-    ```bash
-    ./deploy_vps_docker.sh
-    ```
+# Instalar dependências do sistema necessárias para compilação (opcional, mas bom para compatibilidade)
+RUN apk add --no-cache python3 make g++
 
-O sistema estará rodando na porta 80 da VPS (ex: `http://72.61.217.128`).
+# Copiar arquivos de dependência primeiro (para cache do Docker)
+COPY package*.json ./
+
+# Instalar dependências
+RUN npm install --omit=dev
+
+# Copiar o restante do código fonte
+COPY . .
+
+# Expor a porta que a API usa
+EXPOSE 3000
+
+# Comando para iniciar o servidor
+CMD ["npm", "start"]
+```
 
 ---
 
-## 4. Solução de Problemas Comuns
+## 3. Container do Frontend (`Dockerfile.web`)
+Salvel este código como **`Dockerfile.web`** na raiz.
 
-**Porta 80 ocupada (Windows):**
-Se você tem Skype, XAMPP ou IIS rodando, eles podem bloquear a porta 80.
-*   *Solução:* Feche esses programas ou edite o `docker-compose.yml` e mude `"80:80"` para `"8080:80"`. Aí você acessa em `http://localhost:8080`.
+```dockerfile
+# Estágio 1: Build do React
+FROM node:18-alpine as build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
 
-**Erro de Banco de Dados (Connection Refused):**
-Na primeira execução, o MySQL demora uns segundos para iniciar. O Backend pode tentar conectar antes da hora e falhar.
-*   *Solução:* O Docker está configurado para reiniciar o backend automaticamente (`restart: always`). Espere 30 segundos e atualize a página.
+# Estágio 2: Servidor Nginx
+FROM nginx:alpine
+# Copia o build do React para a pasta do Nginx
+COPY --from=build /app/dist /usr/share/nginx/html
+# Copia a configuração customizada do Nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-**Dados Persistentes:**
-Os dados do MySQL ficam salvos numa pasta oculta do Docker (volume `sie_mysql_data`). Se você desligar o PC e ligar de novo, seus dados **continuam lá**.
-Para apagar tudo e começar do zero: `docker-compose down -v`.
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+---
+
+## 4. Configuração do Nginx (`nginx.conf`)
+Salvel este código como **`nginx.conf`** na raiz.
+
+```nginx
+server {
+    listen 80;
+    
+    # Diretório onde o React build foi copiado
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Configuração de compressão Gzip para velocidade
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Rota para a API (Proxy Reverso)
+    # Redireciona qualquer chamada /api/... para o container 'backend' na porta 3000
+    location /api {
+        proxy_pass http://backend:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Rota principal (Single Page Application)
+    # Se o arquivo não existir, serve o index.html (para o React Router funcionar)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+---
+
+## 5. Script para Windows (`start_with_docker.bat`)
+Salvel este código como **`start_with_docker.bat`** na raiz.
+
+```batch
+@echo off
+echo ==========================================
+echo      INICIANDO S.I.E. VIA DOCKER
+echo ==========================================
+echo.
+echo Certifique-se que o Docker Desktop esta rodando.
+echo Parando containers antigos...
+docker-compose down
+
+echo.
+echo Construindo e iniciando novos containers...
+echo Isso pode levar alguns minutos na primeira vez.
+docker-compose up -d --build
+
+echo.
+echo ==========================================
+echo      SISTEMA INICIADO COM SUCESSO!
+echo ==========================================
+echo.
+echo Acesse no seu navegador: http://localhost
+echo.
+pause
+```
+
+---
+
+## 6. Script para VPS Linux (`deploy_vps_docker.sh`)
+Salvel este código como **`deploy_vps_docker.sh`** na raiz.
+
+```bash
+#!/bin/bash
+
+echo ">>> Iniciando Deploy Docker na VPS..."
+
+# 1. Verificar se Docker está instalado
+if ! command -v docker &> /dev/null
+then
+    echo "Docker não encontrado. Instalando..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    rm get-docker.sh
+    echo "Docker instalado."
+else
+    echo "Docker já está instalado."
+fi
+
+# 2. Verificar Docker Compose
+if ! command -v docker-compose &> /dev/null
+then
+    echo "Docker Compose Plugin não encontrado (tentando usar 'docker compose')..."
+fi
+
+# 3. Derrubar versão antiga e subir nova
+echo ">>> Reiniciando Containers..."
+docker-compose down
+docker-compose up -d --build
+
+echo ">>> DEPLOY CONCLUÍDO!"
+echo "O sistema deve estar acessível na porta 80 (HTTP) deste servidor."
+```

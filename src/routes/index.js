@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 
@@ -15,6 +16,7 @@ const domainRoutes = require('./domainRoutes');
 const logRoutes = require('./logRoutes');
 const homepageRoutes = require('./homepageRoutes');
 const dataRoutes = require('./dataRoutes');
+const stateRoutes = require('./stateRoutes'); // Nova importação
 
 // Definição de Endpoints da API REST
 router.use('/auth', authRoutes);
@@ -30,5 +32,6 @@ router.use('/domain', domainRoutes);
 router.use('/logs', logRoutes);
 router.use('/homepage', homepageRoutes);
 router.use('/data', dataRoutes);
+router.use('/state', stateRoutes); // Registro da rota
 
 module.exports = router;
