@@ -8,6 +8,7 @@
     "migrate": "node ./scripts/run-migrations.js",
     "seed": "node ./scripts/seed.js",
     "build": "vite build",
+    "deploy": "chmod +x ./scripts/deploy.sh && ./scripts/deploy.sh",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
