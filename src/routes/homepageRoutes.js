@@ -1,9 +1,14 @@
+
 const express = require('express');
 const router = express.Router();
 const { HomepageController } = require('../controllers/homepageController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const auth = require('../middleware/auth');
+const admin = require('../middleware/admin');
 
-router.get('/', HomepageController.get);
-router.post('/', protect, admin, HomepageController.update);
+router.get('/config', HomepageController.getConfig);
+router.post('/config', auth, admin, HomepageController.saveConfig);
+
+router.get('/content', HomepageController.getContent);
+router.post('/content', auth, admin, HomepageController.updateContent);
 
 module.exports = router;

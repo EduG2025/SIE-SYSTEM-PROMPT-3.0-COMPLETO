@@ -1,4 +1,8 @@
 const { MediaFile } = require('../models');
+const path = require('path');
+
+// Nota: A lógica de salvar o arquivo físico é feita pelo middleware Multer.
+// Este controller registra o metadado no banco e retorna a URL.
 
 const UploadController = {
     uploadFile: async (req, res) => {
@@ -8,7 +12,9 @@ const UploadController = {
             }
 
             const moduleName = req.body.module || 'system';
+            const userId = req.user ? req.user.id : null;
             
+            // Registro no Banco de Dados
             const newFile = await MediaFile.create({
                 originalName: req.file.originalname,
                 filename: req.file.filename,
@@ -16,23 +22,27 @@ const UploadController = {
                 size: req.file.size,
                 path: req.file.path,
                 module: moduleName,
-                uploadedBy: req.user ? req.user.id : null
+                uploadedBy: userId
             });
 
-            // Construct a public URL
-            const publicUrl = `/media/${moduleName}/${req.user ? req.user.id : 'public'}/${req.file.filename}`;
+            // Construção da URL pública
+            // O servidor deve servir estáticos de /storage/uploads mapeados para /media
+            const publicUrl = `/media/${moduleName}/${userId || 'public'}/${req.file.filename}`;
 
             res.status(201).json({
                 success: true,
+                message: 'Upload realizado com sucesso',
                 file: {
                     id: newFile.id,
                     url: publicUrl,
-                    name: newFile.originalName
+                    name: newFile.originalName,
+                    mimeType: newFile.mimeType,
+                    size: newFile.size
                 }
             });
         } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Erro no upload', error: error.message });
+            console.error("Upload Error:", error);
+            res.status(500).json({ message: 'Erro interno no processamento do upload', error: error.message });
         }
     }
 };

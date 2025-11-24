@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
@@ -52,6 +53,7 @@ const AppContent: React.FC = () => {
   const [impersonatingAdmin, setImpersonatingAdmin] = useState<User | null>(null);
   const [municipalities, setMunicipalities] = useState<string[]>(initialMunicipalities);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true); // New loading state for auth check
   const [activeModules, setActiveModules] = useState<Module[]>([]);
   const [isLoadingModules, setIsLoadingModules] = useState(true);
   
@@ -62,6 +64,24 @@ const AppContent: React.FC = () => {
 
   const authContextValue = useMemo(() => ({ currentUser, setCurrentUser }), [currentUser]);
   const municipalityContextValue = useMemo(() => ({ municipalities, setMunicipalities }), [municipalities]);
+
+  // Session Validation Effect
+  useEffect(() => {
+    const validateSession = async () => {
+      setIsAuthLoading(true);
+      try {
+        const user = await dbService.validateSession();
+        if (user) {
+          setCurrentUser(user);
+        }
+      } catch (error) {
+        console.warn('Sessão inválida ou expirada.');
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    validateSession();
+  }, []);
 
   useEffect(() => {
     const syncModules = async () => {
@@ -102,6 +122,7 @@ const AppContent: React.FC = () => {
         dbService.logActivity('INFO', `Usuário '${currentUser.username}' saiu.`, currentUser.username);
       }
       setCurrentUser(null);
+      localStorage.removeItem('auth_token'); // Clear token on logout
       setMunicipality(null);
       setImpersonatingAdmin(null);
       setIsLoading(false);
@@ -172,6 +193,7 @@ const AppContent: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard" element={<Dashboard municipality={municipality || ''} />} />
                       <Route path="/dashboard/settings" element={<DashboardSettings />} />
+                      {/* Rota de Pesquisa habilitada para Deep Linking via ?autoQuery=... */}
                       <Route path="/research" element={<ResearchModule />} />
                       <Route path="/political" element={<PoliticalNetwork />} />
                       <Route path="/political/:politicianId" element={<PoliticalModule />} />
@@ -200,8 +222,14 @@ const AppContent: React.FC = () => {
     );
   };
 
-  if (isConfigLoading) {
-      return <div className="h-screen w-full flex items-center justify-center bg-brand-primary"><Spinner /></div>;
+  // Show spinner while loading config OR validating session
+  if (isConfigLoading || isAuthLoading) {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center bg-brand-primary space-y-4">
+            <Spinner />
+            <p className="text-brand-light text-sm animate-pulse">Carregando S.I.E...</p>
+        </div>
+      );
   }
 
   const renderContent = () => {

@@ -1,73 +1,98 @@
-# Manual de Infraestrutura Docker - S.I.E.
+# Manual de Infraestrutura Docker - S.I.E. 3.1
 
-Este documento contém o código fonte exato para todos os arquivos de infraestrutura necessários para rodar o sistema via Docker.
+Este guia fornece os arquivos e instruções para rodar o S.I.E. em containers Docker, ideal para VPS ou ambientes de desenvolvimento isolados.
 
 ---
 
-## 1. Arquivo de Orquestração (`docker-compose.yml`)
-Salvel este código como **`docker-compose.yml`** na raiz do projeto.
+## 1. Arquivos de Configuração
+
+### `Dockerfile` (Imagem do Servidor)
+Crie um arquivo chamado `Dockerfile` na raiz do projeto:
+
+```dockerfile
+# Build Stage
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+# Instala dependências incluindo devDependencies para o build
+RUN npm install
+COPY . .
+# Gera o build do frontend (pasta dist)
+RUN npm run build
+
+# Production Stage
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+# Instala apenas dependências de produção
+RUN npm install --omit=dev
+# Copia o código fonte e o build gerado no estágio anterior
+COPY . .
+COPY --from=builder /app/dist ./dist
+
+# Expõe a porta
+EXPOSE 3000
+
+# Define variáveis de ambiente padrão (podem ser sobrescritas pelo docker-compose)
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Inicia o servidor
+CMD ["node", "server.cjs"]
+```
+
+### `docker-compose.yml` (Orquestração)
+Crie um arquivo `docker-compose.yml` na raiz:
 
 ```yaml
 version: '3.8'
 
 services:
-  # 1. Banco de Dados MySQL
+  # Servidor de Aplicação (Node.js + Frontend Estático)
+  app:
+    container_name: sie_app
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=db
+      - DB_USER=sie_user
+      - DB_PASSWORD=sie_secret_pass
+      - DB_NAME=sie_datalake
+      - JWT_SECRET=change_this_secret_in_production
+      - API_KEY=${API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Persistência de uploads
+      - ./storage:/app/storage
+    networks:
+      - sie_network
+
+  # Banco de Dados MySQL 8.0
   db:
     image: mysql:8.0
-    container_name: sie_db_container
+    container_name: sie_db
     command: --default-authentication-plugin=mysql_native_password
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: root_secret_pass
       MYSQL_DATABASE: sie_datalake
       MYSQL_USER: sie_user
-      MYSQL_PASSWORD: sie_password
+      MYSQL_PASSWORD: sie_secret_pass
+    ports:
+      - "3306:3306" # Opcional: Expor se quiser acessar externamente
     volumes:
       - sie_mysql_data:/var/lib/mysql
+    networks:
+      - sie_network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
       retries: 10
-    networks:
-      - sie_network
-
-  # 2. Backend API (Node.js)
-  backend:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: sie_backend_container
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - DB_HOST=db
-      - DB_USER=sie_user
-      - DB_PASSWORD=sie_password
-      - DB_NAME=sie_datalake
-      - PORT=3000
-      - JWT_SECRET=sie_docker_secure_secret
-      # A API Key do Google deve ser passada via arquivo .env na raiz ou substituída aqui
-      - API_KEY=${API_KEY}
-    expose:
-      - "3000"
-    networks:
-      - sie_network
-
-  # 3. Frontend Web (Nginx + React)
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    container_name: sie_frontend_container
-    restart: always
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    networks:
-      - sie_network
 
 volumes:
   sie_mysql_data:
@@ -79,159 +104,51 @@ networks:
 
 ---
 
-## 2. Container do Backend (`Dockerfile`)
-Salvel este código como **`Dockerfile`** (sem extensão) na raiz.
+## 2. Como Rodar (Passo a Passo)
 
-```dockerfile
-# Imagem base leve do Node.js
-FROM node:18-alpine
+### Pré-requisitos
+- Docker e Docker Compose instalados.
 
-# Diretório de trabalho no container
-WORKDIR /app
-
-# Instalar dependências do sistema necessárias para compilação (opcional, mas bom para compatibilidade)
-RUN apk add --no-cache python3 make g++
-
-# Copiar arquivos de dependência primeiro (para cache do Docker)
-COPY package*.json ./
-
-# Instalar dependências
-RUN npm install --omit=dev
-
-# Copiar o restante do código fonte
-COPY . .
-
-# Expor a porta que a API usa
-EXPOSE 3000
-
-# Comando para iniciar o servidor
-CMD ["npm", "start"]
-```
-
----
-
-## 3. Container do Frontend (`Dockerfile.web`)
-Salvel este código como **`Dockerfile.web`** na raiz.
-
-```dockerfile
-# Estágio 1: Build do React
-FROM node:18-alpine as build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-# Estágio 2: Servidor Nginx
-FROM nginx:alpine
-# Copia o build do React para a pasta do Nginx
-COPY --from=build /app/dist /usr/share/nginx/html
-# Copia a configuração customizada do Nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
-
----
-
-## 4. Configuração do Nginx (`nginx.conf`)
-Salvel este código como **`nginx.conf`** na raiz.
-
-```nginx
-server {
-    listen 80;
-    
-    # Diretório onde o React build foi copiado
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # Configuração de compressão Gzip para velocidade
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-
-    # Rota para a API (Proxy Reverso)
-    # Redireciona qualquer chamada /api/... para o container 'backend' na porta 3000
-    location /api {
-        proxy_pass http://backend:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Rota principal (Single Page Application)
-    # Se o arquivo não existir, serve o index.html (para o React Router funcionar)
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
-```
-
----
-
-## 5. Script para Windows (`start_with_docker.bat`)
-Salvel este código como **`start_with_docker.bat`** na raiz.
-
-```batch
-@echo off
-echo ==========================================
-echo      INICIANDO S.I.E. VIA DOCKER
-echo ==========================================
-echo.
-echo Certifique-se que o Docker Desktop esta rodando.
-echo Parando containers antigos...
-docker-compose down
-
-echo.
-echo Construindo e iniciando novos containers...
-echo Isso pode levar alguns minutos na primeira vez.
-docker-compose up -d --build
-
-echo.
-echo ==========================================
-echo      SISTEMA INICIADO COM SUCESSO!
-echo ==========================================
-echo.
-echo Acesse no seu navegador: http://localhost
-echo.
-pause
-```
-
----
-
-## 6. Script para VPS Linux (`deploy_vps_docker.sh`)
-Salvel este código como **`deploy_vps_docker.sh`** na raiz.
-
+### Passo 1: Configurar
+Crie um arquivo `.env` na raiz (opcional, pois o docker-compose já define defaults, mas recomendado para API Keys):
 ```bash
-#!/bin/bash
+API_KEY=sua_chave_gemini_aqui
+```
 
-echo ">>> Iniciando Deploy Docker na VPS..."
-
-# 1. Verificar se Docker está instalado
-if ! command -v docker &> /dev/null
-then
-    echo "Docker não encontrado. Instalando..."
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    rm get-docker.sh
-    echo "Docker instalado."
-else
-    echo "Docker já está instalado."
-fi
-
-# 2. Verificar Docker Compose
-if ! command -v docker-compose &> /dev/null
-then
-    echo "Docker Compose Plugin não encontrado (tentando usar 'docker compose')..."
-fi
-
-# 3. Derrubar versão antiga e subir nova
-echo ">>> Reiniciando Containers..."
-docker-compose down
+### Passo 2: Iniciar
+No terminal, execute:
+```bash
 docker-compose up -d --build
+```
+Isso irá:
+1. Baixar a imagem do MySQL.
+2. Construir a imagem do S.I.E. (compilando o React e configurando o Node).
+3. Iniciar os containers em background.
 
-echo ">>> DEPLOY CONCLUÍDO!"
-echo "O sistema deve estar acessível na porta 80 (HTTP) deste servidor."
+### Passo 3: Verificar
+Acesse `http://localhost:3000`.
+O sistema deve estar rodando. O backend Node.js servirá tanto a API quanto o Frontend React.
+
+---
+
+## 3. Comandos Úteis
+
+**Ver logs:**
+```bash
+docker-compose logs -f app
+```
+
+**Parar sistema:**
+```bash
+docker-compose down
+```
+
+**Acessar shell do container:**
+```bash
+docker exec -it sie_app sh
+```
+
+**Resetar banco de dados (Cuidado!):**
+```bash
+docker-compose down -v
 ```

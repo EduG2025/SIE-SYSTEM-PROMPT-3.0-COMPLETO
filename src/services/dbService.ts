@@ -1,15 +1,15 @@
 
-import { 
-    initialUsers, initialModules, initialApiKeys, initialDataSources, 
-    initialTimelineEvents, initialPlans, initialThemeConfig, initialHomepageConfig 
-} from '../data/seedData';
-
+import { initialUsers } from '../data/mock/users';
+import { initialModules } from '../data/mock/modules';
+import { initialApiKeys } from '../data/mock/apiKeys';
+import { initialDataSources } from '../data/mock/dataSources';
+import { initialTimelineEvents } from '../data/mock/timelineData';
 import type {
   User, Module, ApiKey, DataSourceCategory, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
-  DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey,
+  DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey, SuggestedSource,
   PoliticianDataResponse, ThemeConfig, HomepageConfig
 } from '../types';
-
+import { generateMysqlInstaller } from './sqlGenerator';
 import {
     generateFullDashboardData,
     generatePoliticalLeadership,
@@ -23,96 +23,141 @@ import {
     generateRealTimeline
 } from './geminiService';
 
-import { generateMysqlInstaller } from './sqlGenerator';
+// ... (constantes iniciais mantidas) ...
+const initialPlans: UserPlan[] = [
+    { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
+    { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
+    { id: 'enterprise', name: 'Enterprise', features: ['ai_analysis', 'advanced_search', 'data_export', 'own_api_key', 'priority_support'], modules: ['dashboard', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr', 'research'], requestLimit: -1 }
+];
 
-const DEFAULT_DB_STATE = {
-    users: initialUsers,
-    modules: initialModules,
-    apiKeys: initialApiKeys,
-    dataSources: initialDataSources,
-    plans: initialPlans,
-    politicians: [],
-    employees: [],
-    companies: [],
-    contracts: [],
-    lawsuits: [],
-    socialPosts: [],
-    timelineEvents: initialTimelineEvents,
-    dashboardData: {},
-    dashboardWidgets: [
-        { id: 'mayor', title: 'Prefeito', visible: true },
-        { id: 'vice_mayor', title: 'Vice-Prefeito', visible: true },
-        { id: 'stats', title: 'Estatísticas Gerais', visible: true },
-        { id: 'crisis', title: 'Temas de Crise', visible: true },
-        { id: 'news', title: 'Notícias de Impacto', visible: true },
-        { id: 'reputation', title: 'Radar de Reputação', visible: true },
-        { id: 'irregularities', title: 'Irregularidades', visible: true },
-        { id: 'sentiment', title: 'Sentimento', visible: true },
-        { id: 'master_table', title: 'Tabela Mestra', visible: true },
-        { id: 'data_sources', title: 'Fontes de Dados', visible: true },
-    ],
-    dbConfig: { apiUrl: '', apiToken: '', status: 'Conectado' },
-    systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
-    logs: [],
-    aiAutomationSettings: { isEnabled: false, frequency: 'daily' },
-    themeConfig: initialThemeConfig,
-    homepageConfig: initialHomepageConfig
+const initialFeatures: Feature[] = [
+    { key: 'ai_analysis', name: 'Análise IA', description: 'Acesso aos modelos Gemini para insights.' },
+    { key: 'advanced_search', name: 'Busca Avançada', description: 'Filtros complexos e busca forense.' },
+    { key: 'data_export', name: 'Exportação de Dados', description: 'Download em CSV, JSON e PDF.' },
+    { key: 'own_api_key', name: 'Chave de API Própria', description: 'Use sua própria cota do Google Cloud.' },
+    { key: 'priority_support', name: 'Suporte Prioritário', description: 'Atendimento dedicado.' },
+];
+
+const defaultDashboardWidgets: DashboardWidget[] = [
+    { id: 'mayor', title: 'Prefeito', visible: true },
+    { id: 'vice_mayor', title: 'Vice-Prefeito', visible: true },
+    { id: 'stats', title: 'Estatísticas Gerais', visible: true },
+    { id: 'crisis', title: 'Temas de Crise', visible: true },
+    { id: 'news', title: 'Notícias de Impacto', visible: true },
+    { id: 'reputation', title: 'Radar de Reputação', visible: true },
+    { id: 'irregularities', title: 'Irregularidades', visible: true },
+    { id: 'sentiment', title: 'Sentimento', visible: true },
+    { id: 'master_table', title: 'Tabela Mestra', visible: true },
+    { id: 'data_sources', title: 'Fontes de Dados', visible: true },
+];
+
+const initialThemeConfig: ThemeConfig = {
+    primary: '#0D1117',
+    secondary: '#161B22',
+    accent: '#30363D',
+    text: '#E6EDF3',
+    blue: '#3B82F6'
 };
 
+const initialHomepageConfig: HomepageConfig = {
+    active: true,
+    theme: 'modern',
+    title: 'Sistema de Investigação Estratégica',
+    subtitle: 'Plataforma de Inteligência Governamental',
+    heroImageUrl: '',
+    logoUrl: '',
+    features: [],
+    customColors: { background: '#000000', text: '#ffffff', primary: '#3B82F6' }
+};
+
+const CURRENT_VERSION = '3.1.0'; 
+const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
+
+interface DatabaseSchema {
+    users: User[];
+    modules: Module[];
+    apiKeys: ApiKey[];
+    dataSources: DataSourceCategory[];
+    plans: UserPlan[];
+    politicians: Politician[]; 
+    employees: Employee[];
+    companies: Company[];
+    contracts: Contract[];
+    lawsuits: Lawsuit[];
+    socialPosts: SocialPost[];
+    timelineEvents: TimelineEvent[];
+    dashboardData: Record<string, DashboardData>;
+    dashboardWidgets: DashboardWidget[];
+    dbConfig: DbConfig;
+    systemPrompt: string;
+    logs: LogEntry[];
+    aiAutomationSettings: AiAutomationSettings;
+    themeConfig: ThemeConfig;
+    homepageConfig: HomepageConfig;
+}
+
 class DbService {
-    private data: any = null;
+    private data: DatabaseSchema | null = null;
     private initialized = false;
     private syncTimeout: any = null;
-    private API_URL = '/api'; 
 
     constructor() {
         this.init();
     }
 
-    private async init() {
-        console.log('[DB] Inicializando serviço de banco de dados...');
+    private getApiUrl(): string {
+        return '/api'; 
+    }
+
+    private getApiHeaders(): HeadersInit {
+        const token = localStorage.getItem('auth_token');
+        const headers: any = {
+            'Content-Type': 'application/json',
+            'x-sync-token': this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
+    // --- INTELIGÊNCIA DE DIAGNÓSTICO DE CONEXÃO ---
+    async testConnection(): Promise<{ status: string, details: string }> {
         try {
-            // Passo 1: Verificar conectividade básica antes de tentar sync
-            const connectionStatus = await this.testConnection();
-            
-            if (connectionStatus.status !== 'Conectado') {
-                console.warn(`[DB] Backend Offline ou Inacessível: ${connectionStatus.details}`);
-                console.info('[DB] Inicializando com dados padrão em memória (Modo Offline).');
-                this.data = JSON.parse(JSON.stringify(DEFAULT_DB_STATE));
-                this.data.dbConfig.status = 'Erro';
+            const response = await fetch(`${this.getApiUrl()}/system/status`);
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("text/html")) {
+                 return { status: 'Falha Crítica', details: 'ERRO DE PROXY: Nginx retornou HTML.' };
+            }
+            if (!response.ok) {
+                return { status: 'Erro Backend', details: `HTTP ${response.status}` };
+            }
+            const data = await response.json();
+            return { status: 'Conectado', details: `Online v${data.version || '?'}` };
+        } catch (e) {
+            return { status: 'Offline', details: 'Servidor inalcançável.' };
+        }
+    }
+
+    private async init() {
+        try {
+            const diagnosis = await this.testConnection();
+            if (diagnosis.status !== 'Conectado') {
+                await this.resetDatabase(false);
                 this.initialized = true;
                 return;
             }
-
-            // Passo 2: Se conectado, tentar carregar estado total
-            const response = await fetch(`${this.API_URL}/state`);
-            
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.includes("text/html")) {
-                 throw new Error('Endpoint /state retornou HTML (Erro de Proxy).');
-            }
-
+            const response = await fetch(`${this.getApiUrl()}/state`, { 
+                headers: { 'x-sync-token': DEFAULT_API_TOKEN } 
+            });
             if (response.ok) {
                 const remoteData = await response.json();
-                // Se o backend retornar dados vazios (primeira instalação), usa o default
-                if (remoteData && (remoteData.users || []).length > 0) {
-                    this.data = { ...DEFAULT_DB_STATE, ...remoteData };
-                    this.data.dbConfig.status = 'Conectado';
-                    console.log('[DB] Sincronizado com sucesso com o Backend (MySQL).');
-                } else {
-                    console.log('[DB] Backend conectado mas vazio. Inicializando seed...');
-                    this.data = JSON.parse(JSON.stringify(DEFAULT_DB_STATE));
-                    this.data.dbConfig.status = 'Conectado';
-                    // Opcional: Persistir o seed inicial
-                    // this.persistState(); 
+                if (remoteData && Object.keys(remoteData).length > 0) {
+                    this.data = remoteData;
                 }
-            } else {
-                throw new Error(`Erro HTTP ao buscar estado: ${response.status}`);
-            }
-        } catch (e: any) {
-            console.error('[DB] Erro crítico de inicialização:', e.message);
-            this.data = JSON.parse(JSON.stringify(DEFAULT_DB_STATE));
-            this.data.dbConfig.status = 'Erro';
+            } 
+        } catch (e) {
+            if (!this.data) await this.resetDatabase(false);
         }
         this.initialized = true;
     }
@@ -120,401 +165,250 @@ class DbService {
     private async ensureReady() {
         if (!this.initialized || !this.data) {
             let attempts = 0;
-            while (!this.initialized && attempts < 20) {
-                await new Promise(r => setTimeout(r, 100));
+            while (!this.initialized && attempts < 20) { 
+                await new Promise(resolve => setTimeout(resolve, 200));
                 attempts++;
             }
-            if (!this.data) {
-                this.data = JSON.parse(JSON.stringify(DEFAULT_DB_STATE));
-                this.initialized = true;
-            }
+            if (!this.data) await this.init();
         }
     }
 
     private async persistState() {
-        if (!this.data) return;
-        // Não tenta salvar se já sabemos que o backend está offline ou se é apenas leitura
-        // No modelo híbrido, a persistência é delegada aos métodos saveUser, savePlan, etc.
+        // Placeholder para modo offline
     }
 
-    async login(username: string, password: string): Promise<User> {
-        try {
-            const response = await fetch(`${this.API_URL}/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.includes("text/html")) {
-                throw new Error('Erro de Conexão: A API retornou HTML. O backend pode estar desligado ou o proxy incorreto.');
-            }
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.token) localStorage.setItem('auth_token', data.token);
-                return data.user;
-            } else {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.message || 'Falha na autenticação');
-            }
-        } catch (e: any) {
-            console.warn('[DB] Login offline fallback:', e.message);
-            await this.ensureReady();
-            const user = this.data.users.find((u: User) => u.username === username && u.password === password);
-            if (user) return user;
-            throw e;
-        }
-    }
-
-    async proxyAiRequest(payload: any): Promise<any> {
-        const token = localStorage.getItem('auth_token');
-        const headers: any = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        const response = await fetch(`${this.API_URL}/ai/generate`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) throw new Error(`AI Request Failed: ${response.statusText}`);
-        return await response.json();
-    }
-
-    async getSystemDashboardStats(): Promise<any> {
-        const token = localStorage.getItem('auth_token');
-        const headers: any = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        try {
-            const response = await fetch(`${this.API_URL}/system/stats`, { headers });
-            if (response.ok) return await response.json();
-        } catch(e) {}
-        
-        await this.ensureReady();
-        return {
-            server: { cpuLoad: 0, memoryUsage: 0, totalMemoryGB: "0", uptimeSeconds: 0, platform: "offline" },
-            system: {
-                usersTotal: this.data.users.length,
-                usersActive: 0,
-                modulesTotal: this.data.modules.length,
-                modulesActive: this.data.modules.filter((m: any) => m.active).length,
-                logsTotal: this.data.logs.length,
-                version: "3.1.0"
-            }
+    async resetDatabase(persist = true) {
+        this.data = {
+            users: initialUsers,
+            modules: initialModules,
+            apiKeys: initialApiKeys,
+            dataSources: initialDataSources,
+            plans: initialPlans,
+            politicians: [],
+            employees: [],
+            companies: [],
+            contracts: [],
+            lawsuits: [],
+            socialPosts: [],
+            timelineEvents: initialTimelineEvents,
+            dashboardData: {},
+            dashboardWidgets: defaultDashboardWidgets,
+            dbConfig: { 
+                apiUrl: '', 
+                apiToken: DEFAULT_API_TOKEN, 
+                status: 'Conectado',
+                host: '127.0.0.1',
+                port: '3306',
+                user: 'sie301',
+                password: '***',
+                database: 'sie301'
+            },
+            systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
+            logs: [],
+            aiAutomationSettings: { isEnabled: false, frequency: 'daily' },
+            themeConfig: initialThemeConfig,
+            homepageConfig: initialHomepageConfig
         };
     }
 
-    // --- Methods (Híbrido: API se online, Cache se offline) ---
-
-    async getUsers(): Promise<User[]> { await this.ensureReady(); return this.data.users; }
-    
-    async saveUser(user: User, adminUsername: string) {
+    private async request(endpoint: string, options: RequestInit = {}) {
         await this.ensureReady();
-        // Optimistic UI update
-        const index = this.data.users.findIndex((u: User) => u.id === user.id);
-        if (index >= 0) this.data.users[index] = user;
-        else this.data.users.push(user);
         
-        // API Call
-        try {
-            await fetch(`${this.API_URL}/domain/users`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-                body: JSON.stringify(user)
-            });
-        } catch(e) { console.error("API Save failed", e); }
+        if (['POST', 'PUT', 'DELETE'].includes(options.method || '')) {
+             const check = await this.testConnection();
+             if (check.status !== 'Conectado') throw new Error(check.details);
+        }
+
+        const res = await fetch(`${this.getApiUrl()}${endpoint}`, {
+            ...options,
+            headers: { ...this.getApiHeaders(), ...options.headers }
+        });
+
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.message || `Erro HTTP ${res.status}`);
+        }
+        return res.json();
     }
 
-    async deleteUser(id: number, adminUsername: string): Promise<boolean> {
-        await this.ensureReady();
-        this.data.users = this.data.users.filter((u: User) => u.id !== id);
-        try {
-            await fetch(`${this.API_URL}/domain/users/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
-            });
-        } catch(e) { console.error("API Delete failed", e); }
-        return true;
+    // --- INSTALL MODULE (NEW) ---
+    async installModule(file: File): Promise<void> {
+        const formData = new FormData();
+        formData.append('modulePackage', file);
+        
+        const token = this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN;
+        const tokenObject = localStorage.getItem('auth_token'); // Get user JWT for auth middleware
+
+        const res = await fetch(`${this.getApiUrl()}/modules/install`, {
+            method: 'POST',
+            headers: {
+                'x-sync-token': token,
+                'Authorization': tokenObject ? `Bearer ${tokenObject}` : ''
+            },
+            body: formData
+        });
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || 'Falha na instalação do módulo');
+        }
     }
 
-    async getPlans(): Promise<UserPlan[]> { await this.ensureReady(); return this.data.plans; }
-    async getFeatures(): Promise<Feature[]> { return [{ key: 'ai_analysis', name: 'Análise IA', description: 'Gemini' }, { key: 'own_api_key', name: 'Chave Própria', description: 'BYOK' }]; }
+    // Users
+    async getUsers(): Promise<User[]> { return this.request('/users'); }
+    async saveUser(user: User, adminUsername: string) { return this.request('/users', { method: 'POST', body: JSON.stringify(user) }); }
+    async deleteUser(id: number, adminUsername: string): Promise<boolean> { return this.request(`/users/${id}`, { method: 'DELETE' }).then(() => true).catch(() => false); }
+    async updateUserProfile(id: number, updates: Partial<User>): Promise<User> { return this.request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
 
-    async getModules(): Promise<Module[]> { await this.ensureReady(); return this.data.modules; }
-    async getModule(view: string): Promise<Module | undefined> { await this.ensureReady(); return this.data.modules.find((m: Module) => m.view === view); }
+    // Auth
+    async login(username: string, password: string): Promise<User> { 
+        const res = await this.request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+        if (res.token) localStorage.setItem('auth_token', res.token);
+        return res.user;
+    }
+
+    async validateSession(): Promise<User | null> {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return null;
+        try {
+            return await this.request('/auth/me');
+        } catch (error) {
+            localStorage.removeItem('auth_token');
+            return null;
+        }
+    }
+
+    // Modules & Plans
+    async getModules(): Promise<Module[]> { return this.request('/modules'); }
+    async getPlans(): Promise<UserPlan[]> { return this.request('/plans'); }
+    async savePlan(plan: UserPlan) { return this.request('/plans', { method: 'POST', body: JSON.stringify(plan) }); }
+    async deletePlan(id: string) { return this.request(`/plans/${id}`, { method: 'DELETE' }); }
+    async getUserActiveModules(user: User): Promise<Module[]> {
+        const modules = await this.getModules();
+        const plans = await this.getPlans();
+        const plan = plans.find(p => p.id === user.planId);
+        return plan ? modules.filter(m => m.active && plan.modules.includes(m.id)) : [];
+    }
+    async getUserPlanDetails(user: User) {
+        const plans = await this.getPlans();
+        const plan = plans.find(p => p.id === user.planId);
+        const features = initialFeatures;
+        if (!plan) throw new Error("Plan not found");
+        return { plan, features: features.map(f => ({ ...f, isActive: plan.features.includes(f.key) })) };
+    }
+    async checkUserFeatureAccess(userId: number, featureKey: FeatureKey): Promise<boolean> {
+        const user = (await this.getUsers()).find(u => u.id === userId);
+        if (!user) return false;
+        const plans = await this.getPlans();
+        const plan = plans.find(p => p.id === user.planId);
+        return plan ? plan.features.includes(featureKey) : false;
+    }
+
+    // Module Configs
+    async getModule(view: string): Promise<Module | undefined> { return (await this.getModules()).find(m => m.view === view); }
+    async updateModuleStatus(id: string, active: boolean) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify({ active }) }); }
+    async saveModuleRules(id: string, rules: string) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify({ rules }) }); }
+    async saveModuleConfig(id: string, updates: Partial<Module>) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
+    async addModule(module: Module) { return this.request('/modules', { method: 'POST', body: JSON.stringify(module) }); }
+    async deleteModule(id: string) { return this.request(`/modules/${id}`, { method: 'DELETE' }); }
+
+    // Settings
+    async getTheme(): Promise<ThemeConfig> { return this.request('/settings/theme'); }
+    async saveTheme(config: ThemeConfig, user: string) { return this.request('/settings/theme', { method: 'POST', body: JSON.stringify(config) }); }
+    async getHomepageConfig(): Promise<HomepageConfig> { return this.request('/settings/homepage'); }
+    async saveHomepageConfig(config: HomepageConfig, user: string) { return this.request('/settings/homepage', { method: 'POST', body: JSON.stringify(config) }); }
+    
+    // AI
+    async getSystemPrompt(): Promise<string> { return this.request('/settings/ai').then(r => r.systemPrompt); }
+    async setSystemPrompt(prompt: string, user: string) { return this.request('/settings/ai', { method: 'POST', body: JSON.stringify({ systemPrompt: prompt }) }); }
+    async getAiAutomationSettings(): Promise<AiAutomationSettings> { return this.request('/settings/ai').then(r => r.automation); }
+    async saveAiAutomationSettings(settings: AiAutomationSettings) { return this.request('/settings/ai/automation', { method: 'POST', body: JSON.stringify(settings) }); }
+    async runAiAutomationTask() { return this.request('/settings/ai/run', { method: 'POST' }); }
+    async proxyAiRequest(payload: any) { return this.request('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); }
+
+    // Keys
+    async getApiKeys(): Promise<ApiKey[]> { return this.request('/settings/keys'); }
+    async addApiKey(key: string, username: string) { return this.request('/settings/keys', { method: 'POST', body: JSON.stringify({ key }) }); }
+    async removeApiKey(id: number, username: string) { return this.request(`/settings/keys/${id}`, { method: 'DELETE' }); }
+    async toggleApiKeyStatus(id: number, username: string) { return this.request(`/settings/keys/${id}/toggle`, { method: 'PUT' }); }
+    async setApiKeyStatus(id: number, status: string) { return this.request(`/settings/keys/${id}/toggle`, { method: 'PUT' }); }
+    async saveUserApiKey(userId: number, key: string) { return this.updateUserProfile(userId, { apiKey: key, canUseOwnApiKey: true }); }
+    async removeUserApiKey(userId: number) { return this.updateUserProfile(userId, { apiKey: '', canUseOwnApiKey: false }); }
+
+    // Domain
+    async getEmployees(refresh = false): Promise<Employee[]> { return this.request('/domain/employees'); }
+    async getCompanies(): Promise<Company[]> { return this.request('/domain/companies'); }
+    async getContracts(): Promise<Contract[]> { return this.request('/domain/contracts'); }
+    async getLawsuits(): Promise<Lawsuit[]> { return this.request('/domain/judicial'); }
+    async getSocialPosts(): Promise<SocialPost[]> { return this.request('/domain/social'); }
+    async getTimelineEvents(): Promise<TimelineEvent[]> { return this.request('/domain/timeline'); }
+    async getAllPoliticians(): Promise<Politician[]> { return this.request('/domain/politicians'); }
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
-        await this.ensureReady();
-        if (!refresh && this.data.dashboardData[municipality]) return this.data.dashboardData[municipality];
-        const newData = await generateFullDashboardData(municipality);
-        this.data.dashboardData[municipality] = newData;
-        return newData;
+        const url = `/dashboard/${encodeURIComponent(municipality)}`;
+        if (refresh) await this.request(url, { method: 'POST' });
+        return this.request(url);
     }
 
-    async getDashboardWidgets(): Promise<DashboardWidget[]> { await this.ensureReady(); return this.data.dashboardWidgets; }
-    async saveDashboardWidgets(widgets: DashboardWidget[]) {
-        await this.ensureReady();
-        this.data.dashboardWidgets = widgets;
-        // Salvar em userSettings no futuro
+    async getDashboardWidgets(): Promise<DashboardWidget[]> {
+        const stored = localStorage.getItem('dashboard_widgets');
+        return stored ? JSON.parse(stored) : defaultDashboardWidgets;
     }
+    async saveDashboardWidgets(widgets: DashboardWidget[]) { localStorage.setItem('dashboard_widgets', JSON.stringify(widgets)); }
 
-    async getEmployees(refresh = false): Promise<Employee[]> {
-        await this.ensureReady();
-        if (this.data.employees.length === 0 || refresh) {
-             const municipality = Object.keys(this.data.dashboardData)[0] || 'Local';
-             this.data.employees = await generateRealEmployees(municipality);
-        }
-        return this.data.employees;
-    }
+    // System & Logs
+    async getLogs(): Promise<LogEntry[]> { return this.request('/logs'); }
+    async logActivity(level: string, message: string, user: string) { this.request('/logs', { method: 'POST', body: JSON.stringify({ level, message, user }) }).catch(console.error); }
+    async getSystemDashboardStats() { return this.request('/system/stats'); }
+    async getStats() { return this.getSystemDashboardStats().then(s => s.system); }
+    async getDbConfig(): Promise<DbConfig> { return { status: (await this.testConnection()).status as any, apiUrl: '/api', apiToken: '***' }; }
+    async saveDbConfig(config: DbConfig, user: string) { return Promise.resolve(); }
 
-    async getCompanies(): Promise<Company[]> {
-        await this.ensureReady();
-        if (this.data.companies.length === 0) {
-             const municipality = Object.keys(this.data.dashboardData)[0] || 'Local';
-             this.data.companies = await generateRealCompanies(municipality);
-        }
-        return this.data.companies;
-    }
-
-    async getContracts(): Promise<Contract[]> { await this.ensureReady(); return this.data.contracts; }
-    async getLawsuits(): Promise<Lawsuit[]> { await this.ensureReady(); return this.data.lawsuits; }
-    async getSocialPosts(): Promise<SocialPost[]> { await this.ensureReady(); return this.data.socialPosts; }
-    async getTimelineEvents(): Promise<TimelineEvent[]> { await this.ensureReady(); return this.data.timelineEvents; }
-
-    async getAllPoliticians(): Promise<Politician[]> { await this.ensureReady(); return this.data.politicians; }
-    
-    async getPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> {
-        await this.ensureReady();
-        const p = this.data.politicians.find((pol: Politician) => pol.id === id);
-        if (p) return { data: p, timestamp: Date.now(), source: 'cache' };
-        throw new Error('Político não encontrado');
-    }
-
-    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> {
-        await this.ensureReady();
-        let p = this.data.politicians.find((pol: Politician) => pol.id === id);
-        if (p) {
-             const updated = await generateDeepPoliticianAnalysis(p);
-             Object.assign(p, updated);
-             return { data: p, timestamp: Date.now(), source: 'api' };
-        }
-        throw new Error("Politician not found");
-    }
-
-    async ensurePoliticalLeadership(municipality: string): Promise<Politician[]> {
-        await this.ensureReady();
-        if (this.data.politicians.length === 0) {
-             const leaders = await generatePoliticalLeadership(municipality);
-             this.data.politicians = leaders;
-        }
-        return this.data.politicians;
-    }
-
-    async scanPoliticalSquad(municipality: string) {
-        await this.ensureReady();
-        const squad = await generatePoliticalSquad(municipality);
-        squad.forEach(p => {
-            if (!this.data.politicians.find((ex: Politician) => ex.id === p.id)) this.data.politicians.push(p);
-        });
-    }
-
-    async togglePoliticianMonitoring(id: string) {
-        await this.ensureReady();
-        const p = this.data.politicians.find((pol: Politician) => pol.id === id);
-        if (p) { p.monitored = !p.monitored; }
-    }
-    
-    async getDbConfig(): Promise<DbConfig> { await this.ensureReady(); return this.data.dbConfig; }
-    async saveDbConfig(config: DbConfig, username: string) { /* Impl */ }
-    async getSystemPrompt(): Promise<string> { await this.ensureReady(); return this.data.systemPrompt; }
-    async setSystemPrompt(prompt: string, user: string) { 
-        await this.ensureReady(); 
-        this.data.systemPrompt = prompt;
-        // API Call
-        try {
-            await fetch(`${this.API_URL}/settings/ai`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-                body: JSON.stringify({ systemPrompt: prompt })
-            });
-        } catch(e) {}
-    }
-
-    async getUserActiveModules(user: User): Promise<Module[]> {
-        await this.ensureReady();
-        const plan = this.data.plans.find((p: any) => p.id === user.planId);
-        if (!plan) return []; 
-        const allowedIds = plan.modules || [];
-        return this.data.modules.filter((m: Module) => allowedIds.includes(m.id) && m.active);
-    }
-
-    async checkAndIncrementQuota(userId: number, isAi: boolean) { return { allowed: true, usage: 0, limit: 1000 }; }
-    async getUserUsageStats(userId: number) { return { usage: 0, limit: 1000 }; }
-    async getNextSystemApiKey() { throw new Error("Use proxyAiRequest"); }
-
-    logActivity(level: string, message: string, user: string) {
-        if (!this.data) return;
-        this.data.logs.unshift({ id: Date.now(), timestamp: new Date().toISOString(), level, message, user });
-        if (this.data.logs.length > 100) this.data.logs.pop();
-    }
-
-    async getStats() { await this.ensureReady(); return { users: this.data.users.length, dbStatus: this.data.dbConfig.status }; }
-    async getLogs() { await this.ensureReady(); return this.data.logs; }
-    async getApiKeys() { await this.ensureReady(); return this.data.apiKeys; }
-    
-    async getTheme() { await this.ensureReady(); return this.data.themeConfig; }
-    async saveTheme(config: ThemeConfig, username: string) {
-        await this.ensureReady();
-        this.data.themeConfig = config;
-        localStorage.setItem('sie_theme', JSON.stringify(config));
-        try {
-            await fetch(`${this.API_URL}/settings/theme`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-                body: JSON.stringify(config)
-            });
-        } catch(e) {}
-    }
-
-    async getHomepageConfig() { await this.ensureReady(); return this.data.homepageConfig; }
-    async saveHomepageConfig(config: HomepageConfig, username: string) {
-        await this.ensureReady();
-        this.data.homepageConfig = config;
-        try {
-            await fetch(`${this.API_URL}/settings/homepage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-                body: JSON.stringify(config)
-            });
-        } catch(e) {}
-    }
-
-    async getAiAutomationSettings() { await this.ensureReady(); return this.data.aiAutomationSettings; }
-    async saveAiAutomationSettings(s: any) { await this.ensureReady(); this.data.aiAutomationSettings = s; }
-    async getDataSources() { await this.ensureReady(); return this.data.dataSources; }
-    async addDataSource(catId: number, src: any) { /* Impl */ }
-    async updateDataSource(id: number, src: any) { /* Impl */ }
-    async deleteDataSource(id: number) { /* Impl */ }
-    async addDataSourceCategory(n: string) { /* Impl */ }
-    async renameDataSourceCategory(id: number, n: string) { /* Impl */ }
-    async deleteDataSourceCategory(id: number) { /* Impl */ }
-    async addSourceToCategoryByName(s: any) { /* Impl */ }
-    async validateAllDataSources() { /* Impl */ }
-    async runAiAutomationTask() { /* Impl */ }
-    async saveUserApiKey(uid: number, key: string) { await this.ensureReady(); const u = this.data.users.find((x:any)=>x.id===uid); if(u) u.apiKey = key; }
-    async removeUserApiKey(uid: number) { await this.ensureReady(); const u = this.data.users.find((x:any)=>x.id===uid); if(u) u.apiKey = null; }
-    async checkUserFeatureAccess(uid: number, f: string) { return true; }
-    async updateUserProfile(uid: number, updates: any) { await this.ensureReady(); const u = this.data.users.find((x:any)=>x.id===uid); Object.assign(u, updates); return u; }
-    async getUserPlanDetails(u: User) { return { plan: { name: 'Enterprise' }, features: [] }; }
-    async addApiKey(k: string, u: string) { /* Impl */ }
-    async removeApiKey(id: number, u: string) { /* Impl */ }
-    async toggleApiKeyStatus(id: number, u: string) { /* Impl */ }
-    async setApiKeyStatus(id: number, s: string) { /* Impl */ }
-    async savePlan(p: any) { /* Impl */ }
-    async deletePlan(id: string) { /* Impl */ }
-    async saveModuleRules(view: string, rules: string) { await this.ensureReady(); const m = this.data.modules.find((x:any)=>x.view===view); if(m) m.rules = rules; }
-    async updateModuleStatus(id: string, active: boolean) { await this.ensureReady(); const m = this.data.modules.find((x:any)=>x.id===id); if(m) m.active = active; }
-    async saveModuleConfig(id: string, updates: any) { await this.ensureReady(); const m = this.data.modules.find((x:any)=>x.id===id); if(m) Object.assign(m, updates); }
-    async deleteModule(id: string) { /* Impl */ }
-    async addModule(m: any) { /* Impl */ }
-    async getCompactDatabaseSnapshot() { return "{}"; }
-    
+    // Files
     async uploadFile(file: File): Promise<string> {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('module', 'general');
-
-        try {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch(`${this.API_URL}/upload`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': token ? `Bearer ${token}` : ''
-                },
-                body: formData
-            });
-
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.message || 'Falha no upload');
-            }
-            
-            const data = await response.json();
-            return data.file.url; // Retorna URL relativa /media/...
-        } catch (error: any) {
-            console.error("Upload error:", error);
-            // Em modo offline/dev, retorna Base64 fake para não travar UI
-            if (this.data.dbConfig.status !== 'Conectado') {
-                return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(file);
-                    reader.onload = () => resolve(reader.result as string);
-                });
-            }
-            throw error;
-        }
+        const tokenObject = localStorage.getItem('auth_token');
+        const res = await fetch(`${this.getApiUrl()}/upload`, {
+            method: 'POST',
+            headers: { 
+                'Authorization': tokenObject ? `Bearer ${tokenObject}` : ''
+            },
+            body: formData
+        });
+        if(!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        return data.file.url;
     }
 
-    async executeServerCommand(c: string) { return { success: true, output: "Simulado" }; }
-    async checkForRemoteUpdates() { return { updated: false }; }
-    async getFullDatabaseBackup() { return this.data; }
-    async resetDatabase() { this.data = JSON.parse(JSON.stringify(DEFAULT_DB_STATE)); }
-    async downloadMysqlInstaller() { 
-        if(this.data) {
-            const sql = generateMysqlInstaller('sie_datalake', this.data);
-            const blob = new Blob([sql], { type: 'text/sql' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'install.sql';
-            document.body.appendChild(a);
-            a.click();
-        }
+    // Fallbacks and Stubs
+    async getDataSources(): Promise<DataSourceCategory[]> { return initialDataSources; } 
+    async addDataSource(catId: number, source: any) { /* Stub */ }
+    async updateDataSource(id: number, updates: any) { /* Stub */ }
+    async deleteDataSource(id: number) { /* Stub */ }
+    async toggleDataSourceStatus(id: number) { /* Stub */ }
+    async addDataSourceCategory(name: string) { /* Stub */ }
+    async renameDataSourceCategory(id: number, name: string) { /* Stub */ }
+    async deleteDataSourceCategory(id: number) { /* Stub */ }
+    async addSourceToCategoryByName(source: SuggestedSource) { /* Stub */ }
+    async validateAllDataSources() { /* Stub */ }
+    async getNextSystemApiKey() { return ''; }
+    async checkForRemoteUpdates() { return { updated: false, message: "Up to date", version: "3.1.0" }; }
+    async executeServerCommand(cmd: string) { return { success: false, output: "Command execution not enabled via API." }; }
+    async downloadMysqlInstaller() { window.open(`${this.getApiUrl()}/data/backup/sql`, '_blank'); }
+    async getFullDatabaseBackup() { return this.request('/data/backup/json'); }
+    async resetDatabaseRemote() { return this.request('/data/reset', { method: 'POST' }); }
+    async scanPoliticalSquad(municipality: string) { /* Stub */ }
+    async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
+    async togglePoliticianMonitoring(id: string) { /* Stub */ }
+    async getPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { 
+        const p = (await this.getAllPoliticians()).find(x => x.id === id);
+        if(!p) throw new Error("Not found");
+        return { data: p, timestamp: Date.now(), source: 'api' };
     }
-    
-    async testConnection(): Promise<{ status: string, details: string }> {
-        try {
-            // Adiciona timestamp para evitar cache de navegador
-            const res = await fetch(`${this.API_URL}/status?t=${Date.now()}`);
-            const contentType = res.headers.get("content-type");
-            
-            if (contentType && contentType.includes("text/html")) {
-                 const text = await res.text();
-                 // Se retorna a tag title do SPA, é porque o Nginx mandou para index.html
-                 if (text.includes("<title>") || text.includes("S.I.E.")) {
-                     return { 
-                         status: 'Falha', 
-                         details: 'O endpoint retornou HTML (Erro de Proxy Nginx). Verifique se o bloco "location /api" existe e aponta para a porta 3000.' 
-                     };
-                 }
-                 return { 
-                     status: 'Falha', 
-                     details: 'Erro de Gateway: O servidor retornou HTML genérico.' 
-                 };
-            }
-
-            if (res.ok) {
-                try {
-                    const data = await res.json();
-                    return { 
-                        status: 'Conectado', 
-                        details: `API: Online. DB: ${data.database || 'MySQL'}` 
-                    };
-                } catch (jsonError) {
-                    return { status: 'Falha', details: 'Resposta inválida JSON.' };
-                }
-            }
-            
-            return { status: 'Erro', details: `HTTP ${res.status}` };
-        } catch (e: any) {
-            return { 
-                status: 'Desconectado', 
-                details: `Falha de Rede: ${e.message}. Backend pode estar offline.` 
-            };
-        }
-    }
+    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { return this.getPoliticianAnalysisData(id); }
+    async getUserUsageStats(id: number) { return { usage: 0, limit: 100 }; }
+    async getCompactDatabaseSnapshot() { return "{}"; }
 }
 
 export const dbService = new DbService();
