@@ -1,4 +1,3 @@
-
 const { 
     sequelize, User, Plan, Module, ApiKey, SystemSetting, 
     Politician, Employee, Company, Contract, Lawsuit, 
@@ -71,10 +70,6 @@ const StateController = {
         }
     },
 
-    // POST /api/state - Recebe o JSON do frontend
-    // Nota: Em produção real, recomenda-se usar endpoints granulares (/api/users, /api/politicians)
-    // em vez de enviar o banco todo. Este endpoint é um "catch-all" para facilitar a migração
-    // da arquitetura LocalStorage para VPS.
     saveState: async (req, res) => {
         res.json({ 
             success: true, 

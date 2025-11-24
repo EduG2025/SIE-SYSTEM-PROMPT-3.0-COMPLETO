@@ -23,7 +23,7 @@ import {
     generateRealTimeline
 } from './geminiService';
 
-// ... (constantes iniciais mantidas) ...
+// ... (initial constants maintained) ...
 const initialPlans: UserPlan[] = [
     { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
     { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
@@ -106,6 +106,8 @@ class DbService {
     }
 
     private getApiUrl(): string {
+        // Use relative path for production to avoid CORS issues and port mismatches.
+        // Vite proxy (dev) and Nginx (prod) handle the redirection to the backend.
         return '/api'; 
     }
 
@@ -121,63 +123,49 @@ class DbService {
         return headers;
     }
 
-    // --- INTELIGÊNCIA DE DIAGNÓSTICO DE CONEXÃO ---
     async testConnection(): Promise<{ status: string, details: string }> {
         try {
-            const response = await fetch(`${this.getApiUrl()}/system/status`);
+            // We use /system/status as the health check endpoint
+            const response = await fetch(`${this.getApiUrl()}/system/status`, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            });
+            
             const contentType = response.headers.get("content-type");
+            
             if (contentType && contentType.includes("text/html")) {
-                 return { status: 'Falha Crítica', details: 'ERRO DE PROXY: Nginx retornou HTML.' };
+                 console.warn("[DB] Proxy Error: Received HTML from API endpoint.");
+                 return { status: 'Falha', details: 'ERRO DE PROXY: Nginx retornou HTML (index.html) em vez de JSON.' };
             }
+            
             if (!response.ok) {
                 return { status: 'Erro Backend', details: `HTTP ${response.status}` };
             }
+            
             const data = await response.json();
-            return { status: 'Conectado', details: `Online v${data.version || '?'}` };
+            return { status: 'Conectado', details: `Online` };
         } catch (e) {
+            console.warn("[DB] Connection error:", e);
             return { status: 'Offline', details: 'Servidor inalcançável.' };
         }
     }
 
     private async init() {
         try {
-            const diagnosis = await this.testConnection();
-            if (diagnosis.status !== 'Conectado') {
-                await this.resetDatabase(false);
-                this.initialized = true;
-                return;
-            }
-            const response = await fetch(`${this.getApiUrl()}/state`, { 
-                headers: { 'x-sync-token': DEFAULT_API_TOKEN } 
-            });
-            if (response.ok) {
-                const remoteData = await response.json();
-                if (remoteData && Object.keys(remoteData).length > 0) {
-                    this.data = remoteData;
-                }
-            } 
-        } catch (e) {
+            // Ensure minimal initialization for UI rendering
             if (!this.data) await this.resetDatabase(false);
+            this.initialized = true;
+        } catch (e) {
+            console.error("Init failed", e);
         }
-        this.initialized = true;
     }
 
     private async ensureReady() {
-        if (!this.initialized || !this.data) {
-            let attempts = 0;
-            while (!this.initialized && attempts < 20) { 
-                await new Promise(resolve => setTimeout(resolve, 200));
-                attempts++;
-            }
-            if (!this.data) await this.init();
-        }
-    }
-
-    private async persistState() {
-        // Placeholder para modo offline
+        if (!this.initialized) await this.init();
     }
 
     async resetDatabase(persist = true) {
+        // Sets default structure to prevent UI crashes if backend is unreachable
         this.data = {
             users: initialUsers,
             modules: initialModules,
@@ -214,11 +202,6 @@ class DbService {
     private async request(endpoint: string, options: RequestInit = {}) {
         await this.ensureReady();
         
-        if (['POST', 'PUT', 'DELETE'].includes(options.method || '')) {
-             const check = await this.testConnection();
-             if (check.status !== 'Conectado') throw new Error(check.details);
-        }
-
         const res = await fetch(`${this.getApiUrl()}${endpoint}`, {
             ...options,
             headers: { ...this.getApiHeaders(), ...options.headers }
@@ -231,36 +214,8 @@ class DbService {
         return res.json();
     }
 
-    // --- INSTALL MODULE (NEW) ---
-    async installModule(file: File): Promise<void> {
-        const formData = new FormData();
-        formData.append('modulePackage', file);
-        
-        const token = this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN;
-        const tokenObject = localStorage.getItem('auth_token'); // Get user JWT for auth middleware
+    // --- Public Methods ---
 
-        const res = await fetch(`${this.getApiUrl()}/modules/install`, {
-            method: 'POST',
-            headers: {
-                'x-sync-token': token,
-                'Authorization': tokenObject ? `Bearer ${tokenObject}` : ''
-            },
-            body: formData
-        });
-
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.message || 'Falha na instalação do módulo');
-        }
-    }
-
-    // Users
-    async getUsers(): Promise<User[]> { return this.request('/users'); }
-    async saveUser(user: User, adminUsername: string) { return this.request('/users', { method: 'POST', body: JSON.stringify(user) }); }
-    async deleteUser(id: number, adminUsername: string): Promise<boolean> { return this.request(`/users/${id}`, { method: 'DELETE' }).then(() => true).catch(() => false); }
-    async updateUserProfile(id: number, updates: Partial<User>): Promise<User> { return this.request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
-
-    // Auth
     async login(username: string, password: string): Promise<User> { 
         const res = await this.request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
         if (res.token) localStorage.setItem('auth_token', res.token);
@@ -278,17 +233,27 @@ class DbService {
         }
     }
 
-    // Modules & Plans
+    async getUsers(): Promise<User[]> { return this.request('/users'); }
+    async saveUser(user: User, adminUsername: string) { return this.request('/users', { method: 'POST', body: JSON.stringify(user) }); }
+    async deleteUser(id: number, adminUsername: string): Promise<boolean> { return this.request(`/users/${id}`, { method: 'DELETE' }).then(() => true).catch(() => false); }
+    async updateUserProfile(id: number, updates: Partial<User>): Promise<User> { return this.request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
+
     async getModules(): Promise<Module[]> { return this.request('/modules'); }
     async getPlans(): Promise<UserPlan[]> { return this.request('/plans'); }
     async savePlan(plan: UserPlan) { return this.request('/plans', { method: 'POST', body: JSON.stringify(plan) }); }
     async deletePlan(id: string) { return this.request(`/plans/${id}`, { method: 'DELETE' }); }
+    
     async getUserActiveModules(user: User): Promise<Module[]> {
-        const modules = await this.getModules();
-        const plans = await this.getPlans();
-        const plan = plans.find(p => p.id === user.planId);
-        return plan ? modules.filter(m => m.active && plan.modules.includes(m.id)) : [];
+        try {
+            const modules = await this.getModules();
+            const plans = await this.getPlans();
+            const plan = plans.find(p => p.id === user.planId);
+            return plan ? modules.filter(m => m.active && plan.modules.includes(m.id)) : [];
+        } catch (e) {
+            return initialModules;
+        }
     }
+
     async getUserPlanDetails(user: User) {
         const plans = await this.getPlans();
         const plan = plans.find(p => p.id === user.planId);
@@ -296,6 +261,7 @@ class DbService {
         if (!plan) throw new Error("Plan not found");
         return { plan, features: features.map(f => ({ ...f, isActive: plan.features.includes(f.key) })) };
     }
+
     async checkUserFeatureAccess(userId: number, featureKey: FeatureKey): Promise<boolean> {
         const user = (await this.getUsers()).find(u => u.id === userId);
         if (!user) return false;
@@ -304,21 +270,30 @@ class DbService {
         return plan ? plan.features.includes(featureKey) : false;
     }
 
-    // Module Configs
     async getModule(view: string): Promise<Module | undefined> { return (await this.getModules()).find(m => m.view === view); }
     async updateModuleStatus(id: string, active: boolean) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify({ active }) }); }
     async saveModuleRules(id: string, rules: string) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify({ rules }) }); }
     async saveModuleConfig(id: string, updates: Partial<Module>) { return this.request(`/modules/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
     async addModule(module: Module) { return this.request('/modules', { method: 'POST', body: JSON.stringify(module) }); }
     async deleteModule(id: string) { return this.request(`/modules/${id}`, { method: 'DELETE' }); }
+    
+    async installModule(file: File): Promise<void> {
+        const formData = new FormData();
+        formData.append('modulePackage', file);
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch(`${this.getApiUrl()}/modules/install`, {
+            method: 'POST',
+            headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+            body: formData
+        });
+        if (!res.ok) throw new Error('Falha na instalação do módulo');
+    }
 
-    // Settings
     async getTheme(): Promise<ThemeConfig> { return this.request('/settings/theme'); }
     async saveTheme(config: ThemeConfig, user: string) { return this.request('/settings/theme', { method: 'POST', body: JSON.stringify(config) }); }
     async getHomepageConfig(): Promise<HomepageConfig> { return this.request('/settings/homepage'); }
     async saveHomepageConfig(config: HomepageConfig, user: string) { return this.request('/settings/homepage', { method: 'POST', body: JSON.stringify(config) }); }
     
-    // AI
     async getSystemPrompt(): Promise<string> { return this.request('/settings/ai').then(r => r.systemPrompt); }
     async setSystemPrompt(prompt: string, user: string) { return this.request('/settings/ai', { method: 'POST', body: JSON.stringify({ systemPrompt: prompt }) }); }
     async getAiAutomationSettings(): Promise<AiAutomationSettings> { return this.request('/settings/ai').then(r => r.automation); }
@@ -326,7 +301,6 @@ class DbService {
     async runAiAutomationTask() { return this.request('/settings/ai/run', { method: 'POST' }); }
     async proxyAiRequest(payload: any) { return this.request('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); }
 
-    // Keys
     async getApiKeys(): Promise<ApiKey[]> { return this.request('/settings/keys'); }
     async addApiKey(key: string, username: string) { return this.request('/settings/keys', { method: 'POST', body: JSON.stringify({ key }) }); }
     async removeApiKey(id: number, username: string) { return this.request(`/settings/keys/${id}`, { method: 'DELETE' }); }
@@ -335,7 +309,6 @@ class DbService {
     async saveUserApiKey(userId: number, key: string) { return this.updateUserProfile(userId, { apiKey: key, canUseOwnApiKey: true }); }
     async removeUserApiKey(userId: number) { return this.updateUserProfile(userId, { apiKey: '', canUseOwnApiKey: false }); }
 
-    // Domain
     async getEmployees(refresh = false): Promise<Employee[]> { return this.request('/domain/employees'); }
     async getCompanies(): Promise<Company[]> { return this.request('/domain/companies'); }
     async getContracts(): Promise<Contract[]> { return this.request('/domain/contracts'); }
@@ -346,7 +319,9 @@ class DbService {
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
         const url = `/dashboard/${encodeURIComponent(municipality)}`;
-        if (refresh) await this.request(url, { method: 'POST' });
+        if (refresh) {
+            await this.request(url, { method: 'POST' });
+        }
         return this.request(url);
     }
 
@@ -356,56 +331,66 @@ class DbService {
     }
     async saveDashboardWidgets(widgets: DashboardWidget[]) { localStorage.setItem('dashboard_widgets', JSON.stringify(widgets)); }
 
-    // System & Logs
     async getLogs(): Promise<LogEntry[]> { return this.request('/logs'); }
-    async logActivity(level: string, message: string, user: string) { this.request('/logs', { method: 'POST', body: JSON.stringify({ level, message, user }) }).catch(console.error); }
-    async getSystemDashboardStats() { return this.request('/system/stats'); }
-    async getStats() { return this.getSystemDashboardStats().then(s => s.system); }
+    async logActivity(level: string, message: string, user: string) { 
+        this.request('/logs', { method: 'POST', body: JSON.stringify({ level, message, user }) }).catch(console.error); 
+    }
+    async getSystemDashboardStats() { return this.request('/system/status'); } 
+    async getStats() { return this.getSystemDashboardStats().then(s => s.system || {}); }
+    
     async getDbConfig(): Promise<DbConfig> { return { status: (await this.testConnection()).status as any, apiUrl: '/api', apiToken: '***' }; }
     async saveDbConfig(config: DbConfig, user: string) { return Promise.resolve(); }
 
-    // Files
     async uploadFile(file: File): Promise<string> {
         const formData = new FormData();
         formData.append('file', file);
-        const tokenObject = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('auth_token');
+        
         const res = await fetch(`${this.getApiUrl()}/upload`, {
             method: 'POST',
-            headers: { 
-                'Authorization': tokenObject ? `Bearer ${tokenObject}` : ''
-            },
+            headers: { 'Authorization': token ? `Bearer ${token}` : '' },
             body: formData
         });
+        
         if(!res.ok) throw new Error('Upload failed');
         const data = await res.json();
         return data.file.url;
     }
 
-    // Fallbacks and Stubs
-    async getDataSources(): Promise<DataSourceCategory[]> { return initialDataSources; } 
-    async addDataSource(catId: number, source: any) { /* Stub */ }
-    async updateDataSource(id: number, updates: any) { /* Stub */ }
-    async deleteDataSource(id: number) { /* Stub */ }
-    async toggleDataSourceStatus(id: number) { /* Stub */ }
-    async addDataSourceCategory(name: string) { /* Stub */ }
-    async renameDataSourceCategory(id: number, name: string) { /* Stub */ }
-    async deleteDataSourceCategory(id: number) { /* Stub */ }
-    async addSourceToCategoryByName(source: SuggestedSource) { /* Stub */ }
-    async validateAllDataSources() { /* Stub */ }
-    async getNextSystemApiKey() { return ''; }
-    async checkForRemoteUpdates() { return { updated: false, message: "Up to date", version: "3.1.0" }; }
-    async executeServerCommand(cmd: string) { return { success: false, output: "Command execution not enabled via API." }; }
-    async downloadMysqlInstaller() { window.open(`${this.getApiUrl()}/data/backup/sql`, '_blank'); }
+    async downloadMysqlInstaller() { 
+        const token = localStorage.getItem('auth_token');
+        window.open(`${this.getApiUrl()}/data/backup/sql?token=${token}`, '_blank'); 
+    }
     async getFullDatabaseBackup() { return this.request('/data/backup/json'); }
     async resetDatabaseRemote() { return this.request('/data/reset', { method: 'POST' }); }
-    async scanPoliticalSquad(municipality: string) { /* Stub */ }
+    
+    async getDataSources(): Promise<DataSourceCategory[]> { return initialDataSources; } 
+    async addDataSource(catId: number, source: any) { /* TODO */ }
+    async updateDataSource(id: number, updates: any) { /* TODO */ }
+    async deleteDataSource(id: number) { /* TODO */ }
+    async toggleDataSourceStatus(id: number) { /* TODO */ }
+    async addDataSourceCategory(name: string) { /* TODO */ }
+    async renameDataSourceCategory(id: number, name: string) { /* TODO */ }
+    async deleteDataSourceCategory(id: number) { /* TODO */ }
+    async addSourceToCategoryByName(source: SuggestedSource) { /* TODO */ }
+    async validateAllDataSources() { /* TODO */ }
+    async getNextSystemApiKey() { return ''; }
+    async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: "3.1.0" }; }
+    async executeServerCommand(cmd: string) { return { success: false, output: "Comando não permitido via API pública." }; }
+    async scanPoliticalSquad(municipality: string) { /* TODO: Move to backend AI service */ }
     async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
-    async togglePoliticianMonitoring(id: string) { /* Stub */ }
+    async togglePoliticianMonitoring(id: string) { /* TODO */ }
+    
     async getPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { 
-        const p = (await this.getAllPoliticians()).find(x => x.id === id);
-        if(!p) throw new Error("Not found");
-        return { data: p, timestamp: Date.now(), source: 'api' };
+        try {
+            const p = (await this.getAllPoliticians()).find(x => x.id === id);
+            if(!p) throw new Error("Not found");
+            return { data: p, timestamp: Date.now(), source: 'api' };
+        } catch (e) {
+            throw e;
+        }
     }
+    
     async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { return this.getPoliticianAnalysisData(id); }
     async getUserUsageStats(id: number) { return { usage: 0, limit: 100 }; }
     async getCompactDatabaseSnapshot() { return "{}"; }
