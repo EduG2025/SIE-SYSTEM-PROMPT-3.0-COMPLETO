@@ -1,8 +1,13 @@
-# server.cjs - Código Fonte
+# Documentação de Infraestrutura - S.I.E. v3.1.0
 
-Este arquivo é o ponto de entrada ("Entry Point") da aplicação Node.js na VPS. Ele orquestra o Express, a conexão com o banco de dados MySQL (Sequelize), o agendamento de tarefas (Cron) e serve tanto a API quanto o Frontend estático (React).
+Este documento contém os códigos-fonte essenciais para a configuração do servidor Backend e do Proxy Reverso na VPS (CloudPanel/Nginx).
 
-Crie um arquivo chamado `server.cjs` na raiz do projeto e cole o conteúdo abaixo:
+---
+
+## 1. Servidor Node.js (`server.cjs`)
+
+Este é o ponto de entrada da aplicação. Ele deve estar na **raiz** do projeto.
+Ele gerencia: API, Conexão MySQL, Agendamento de Tarefas (IA), Uploads e serve o Frontend (fallback).
 
 ```javascript
 /**
@@ -154,4 +159,90 @@ const startServer = async () => {
 };
 
 startServer();
+```
+
+---
+
+## 2. Configuração Nginx (`nginx_vhost.conf`)
+
+Copie este bloco para a aba **Vhost** no CloudPanel ou no arquivo `/etc/nginx/sites-available/seu-dominio`.
+
+**Correção Crítica:** A linha `proxy_pass` **NÃO** deve ter uma barra (`/`) no final para que o caminho `/api` seja passado corretamente ao Node.js.
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name sie.jennyai.space; # Substitua pelo seu domínio
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name sie.jennyai.space; # Substitua pelo seu domínio
+
+    # --- Certificados SSL (Gerenciados pelo CloudPanel/Certbot) ---
+    # ssl_certificate /etc/...;
+    # ssl_certificate_key /etc/...;
+
+    # Raiz do Frontend Compilado (React)
+    root /home/jennyai-sie/htdocs/sie.jennyai.space/dist;
+    index index.html;
+
+    # Logs
+    access_log /home/jennyai-sie/htdocs/sie.jennyai.space/logs/access.log;
+    error_log /home/jennyai-sie/htdocs/sie.jennyai.space/logs/error.log;
+
+    # ==========================================
+    # 1. Proxy para API Node.js (CORRIGIDO)
+    # ==========================================
+    location /api {
+        # A barra no final foi REMOVIDA para preservar o caminho /api na requisição ao Node
+        proxy_pass http://127.0.0.1:3000;
+        
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Aumenta timeout para IA gerar relatórios longos
+        proxy_read_timeout 300s;
+    }
+
+    # ==========================================
+    # 2. Servir Arquivos de Upload (Storage)
+    # ==========================================
+    location /media/ {
+        alias /home/jennyai-sie/htdocs/sie.jennyai.space/storage/uploads/;
+        autoindex off;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    # ==========================================
+    # 3. Frontend React (SPA Fallback)
+    # ==========================================
+    location / {
+        try_files $uri $uri/ /index.html;
+        expires -1; # Não cachear o HTML principal para garantir atualizações
+    }
+
+    # ==========================================
+    # 4. Arquivos Estáticos (Assets)
+    # ==========================================
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Segurança básica
+    location ~ /\.ht {
+        deny all;
+    }
+}
 ```

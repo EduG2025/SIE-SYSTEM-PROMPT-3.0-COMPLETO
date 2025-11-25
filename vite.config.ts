@@ -6,33 +6,31 @@ export default defineConfig({
   plugins: [react()],
   base: '/',
   server: {
-    // ATENÇÃO: Esta configuração de proxy funciona APENAS no modo de desenvolvimento (npm run dev).
-    // Em produção (VPS/Nginx), o redirecionamento de /api deve ser feito no arquivo de configuração do Nginx (Vhost).
+    // Proxy para desenvolvimento local
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
-          });
-        },
       }
     }
   },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: false, 
-    chunkSizeWarningLimit: 1000,
+    sourcemap: false,
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
+        // Garante que arquivos de backend nunca sejam incluídos no bundle
+        external: [
+            'sequelize',
+            'mysql2',
+            'express',
+            'fs',
+            'path',
+            'os',
+            'crypto'
+        ],
         output: {
             manualChunks: {
                 'vendor-react': ['react', 'react-dom', 'react-router-dom'],
