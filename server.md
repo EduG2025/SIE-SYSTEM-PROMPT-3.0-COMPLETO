@@ -1,6 +1,8 @@
 # server.cjs - Código Fonte
 
-Arquivo de entrada principal do servidor Node.js.
+Este arquivo é o ponto de entrada ("Entry Point") da aplicação Node.js na VPS. Ele orquestra o Express, a conexão com o banco de dados MySQL (Sequelize), o agendamento de tarefas (Cron) e serve tanto a API quanto o Frontend estático (React).
+
+Crie um arquivo chamado `server.cjs` na raiz do projeto e cole o conteúdo abaixo:
 
 ```javascript
 /**
@@ -75,10 +77,10 @@ app.use(express.static(path.join(__dirname, 'dist')));
 // 3. Rotas da API
 // ==========================================
 
-// Rota de Estado
+// Rota de Sincronização de Estado (Frontend <-> DB)
 app.use('/api/state', stateRoutes);
 
-// Todas as rotas da API começam com /api
+// Hub Principal de Rotas
 app.use('/api', routes);
 
 // Rota de Health Check simples para o Nginx/LoadBalancer
@@ -128,18 +130,20 @@ const startServer = async () => {
         await sequelize.sync({ alter: true });
         console.log('✅ Sequelize: Models sincronizados.');
 
-        // 3. Inicialização do Agendador (Cron Jobs para IA)
-        await schedulerService.init().catch(err => console.error('⚠️ Falha no Scheduler:', err));
-        console.log('✅ Scheduler: Serviço de automação iniciado.');
-
-        // 4. Iniciar Listener HTTP
-        app.listen(PORT, '0.0.0.0', () => {
-            console.log(`\n📡 Servidor rodando na porta: ${PORT}`);
-            console.log(`👉 Frontend: http://localhost:${PORT}`);
-            console.log(`👉 API Base: http://localhost:${PORT}/api`);
-            console.log(`👉 Uploads:  http://localhost:${PORT}/media`);
-            console.log('==================================================\n');
-        });
+        // 3. Inicialização do Agendador (Cron Jobs para IA) e Listen em paralelo
+        await Promise.all([
+            schedulerService.init().catch(err => console.error('⚠️ Falha no Scheduler:', err)),
+            new Promise(resolve => {
+                app.listen(PORT, '0.0.0.0', () => {
+                    console.log(`\n📡 Servidor rodando na porta: ${PORT}`);
+                    console.log(`👉 Frontend: http://localhost:${PORT}`);
+                    console.log(`👉 API Base: http://localhost:${PORT}/api`);
+                    console.log(`👉 Uploads:  http://localhost:${PORT}/media`);
+                    console.log('==================================================\n');
+                    resolve();
+                });
+            })
+        ]);
 
     } catch (error) {
         console.error('\n❌ ERRO FATAL NA INICIALIZAÇÃO:');
