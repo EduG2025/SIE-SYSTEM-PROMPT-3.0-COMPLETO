@@ -1,0 +1,94 @@
+name: 🚀 Deploy S.I.E 3.1.0 (Node + React) para VPS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ----------------------------------------
+      # 1. Checkout do repositório
+      # ----------------------------------------
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      # ----------------------------------------
+      # 2. Instalar Node.js
+      # ----------------------------------------
+      - name: 🟩 Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      # ----------------------------------------
+      # 3. Instalar dependências do projeto
+      # ----------------------------------------
+      - name: 📦 Instalar dependências (npm install)
+        run: npm install
+
+      # ----------------------------------------
+      # 4. Rodar migrações e seeds
+      # ----------------------------------------
+      - name: 🛠 Rodar Migrate + Seed
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          npm run migrate
+          npm run seed
+
+      # ----------------------------------------
+      # 5. Build do Frontend (Vite)
+      # ----------------------------------------
+      - name: 🏗 Build do Frontend (npm run build)
+        run: npm run build
+
+      # ----------------------------------------
+      # 6. Copiar arquivos para VPS via SSH + Rsync
+      # ----------------------------------------
+      - name: 📤 Enviar arquivos para VPS (rsync)
+        uses: burnett01/rsync-deploy@v2.2
+        with:
+          switches: -avzr --delete
+          remote_path: "/var/www/sie301"
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_user: ${{ secrets.SSH_USER }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # ----------------------------------------
+      # 7. Rodar comandos na VPS depois do deploy
+      # ----------------------------------------
+      - name: 🧑‍💻 Rodar scripts remotos na VPS (restart PM2 + Install)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/sie301
+
+            echo "👉 Instalar dependências na VPS"
+            npm install --omit=dev
+
+            echo "👉 Aplicar Migrações"
+            npm run migrate
+
+            echo "👉 Limpar cache antigo"
+            rm -rf dist
+
+            echo "👉 Build confiável (caso o rsync não leve a build)"
+            npm run build
+
+            echo "👉 Reiniciar PM2"
+            pm2 restart sie301 || pm2 start ecosystem.config.js --name sie301
+
+            pm2 save
