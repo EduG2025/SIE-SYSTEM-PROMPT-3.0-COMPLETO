@@ -1,34 +1,42 @@
-
 const { GoogleGenAI } = require("@google/genai");
 const { ApiKey, SystemSetting, DashboardData, AuditLog } = require('../models');
 
-// Função auxiliar para obter chave de API do sistema
+// Rotates system keys for load balancing
 const getSystemApiKey = async () => {
     const keys = await ApiKey.findAll({ where: { status: 'Ativa', type: 'System' } });
     if (keys.length === 0) {
         if (process.env.API_KEY) return process.env.API_KEY;
         throw new Error("Nenhuma chave de sistema disponível para automação.");
     }
-    // Load Balancer Simples
+    // Simple Random Load Balancer
     const keyRecord = keys[Math.floor(Math.random() * keys.length)];
-    await keyRecord.increment('usageCount');
+    // Fire and forget update
+    keyRecord.increment('usageCount');
     return keyRecord.key;
 };
 
-// Helper para extrair JSON
+// Robust JSON Extractor that handles Markdown blocks and loose text
 const extractJson = (text) => {
+    if (!text) return null;
     try {
+        // 1. Try extracting from Markdown code blocks
         const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) return JSON.parse(jsonMatch[1]);
+        if (jsonMatch && jsonMatch[1]) {
+            return JSON.parse(jsonMatch[1]);
+        }
         
+        // 2. Try finding the first '{' and last '}'
         const firstBrace = text.indexOf('{');
         const lastBrace = text.lastIndexOf('}');
         if (firstBrace !== -1 && lastBrace !== -1) {
             return JSON.parse(text.substring(firstBrace, lastBrace + 1));
         }
-        return null;
+        
+        // 3. Try raw parse
+        return JSON.parse(text);
     } catch (e) {
-        console.error("JSON Parse Error in Backend AI:", e);
+        console.error("JSON Parse Error in Backend AI:", e.message);
+        // Return null to indicate failure
         return null;
     }
 };
@@ -36,7 +44,7 @@ const extractJson = (text) => {
 const BackendAiService = {
     /**
      * Executa a atualização autônoma do Dashboard Principal
-     * @param {string} municipality Município alvo (obtido da configuração ou padrão)
+     * @param {string} municipality Município alvo
      */
     refreshDashboardData: async (municipality = 'Brasília, DF') => {
         try {
@@ -45,13 +53,13 @@ const BackendAiService = {
             
             // Carrega prompt do sistema
             const promptSetting = await SystemSetting.findByPk('ai_system_prompt');
-            const systemInstruction = promptSetting ? promptSetting.value.prompt : "Você é um analista de inteligência.";
+            const systemInstruction = promptSetting ? promptSetting.value.prompt : "Você é um analista de inteligência governamental.";
 
             const prompt = `
             Gere um dashboard estratégico JSON atualizado para: ${municipality}.
             Busque dados REAIS e RECENTES na web sobre política, crises e estatísticas.
             
-            Retorne APENAS JSON com esta estrutura:
+            Retorne APENAS JSON com esta estrutura exata:
             {
                 "stats": { "facebook": 0, "instagram": 0, "twitter": 0, "judicialProcesses": 0 },
                 "mayor": { "name": "Nome", "party": "Partido", "position": "Prefeito", "avatarUrl": "" },
@@ -77,10 +85,9 @@ const BackendAiService = {
             const data = extractJson(rawText);
 
             if (data) {
-                // Salva no Banco de Dados
-                const nextUpdate = new Date(Date.now() + (24 * 60 * 60 * 1000)); // +24h padrão, ajustado pelo scheduler depois
+                const nextUpdate = new Date(Date.now() + (24 * 60 * 60 * 1000)); // +24h default
                 
-                // Mescla com dados existentes para não perder widgets que a IA não gerou agora
+                // Merge with existing data to preserve history/settings
                 const existingRecord = await DashboardData.findByPk(municipality);
                 const mergedData = existingRecord 
                     ? { ...existingRecord.data, ...data, lastAnalysis: new Date(), nextUpdate } 
@@ -92,6 +99,7 @@ const BackendAiService = {
                     last_updated: new Date()
                 });
 
+                // Audit Log
                 await AuditLog.create({
                     level: 'INFO',
                     message: `Automated Dashboard Update for ${municipality}`,
@@ -101,10 +109,11 @@ const BackendAiService = {
 
                 return true;
             }
-            return false;
+            
+            throw new Error("Invalid JSON response from AI");
 
         } catch (error) {
-            console.error("Backend AI Task Failed:", error);
+            console.error("Backend AI Task Failed:", error.message);
             await AuditLog.create({
                 level: 'ERROR',
                 message: `Automated Update Failed: ${error.message}`,

@@ -1,44 +1,10 @@
-
-import { initialUsers } from '../data/mock/users';
-import { initialModules } from '../data/mock/modules';
-import { initialApiKeys } from '../data/mock/apiKeys';
-import { initialDataSources } from '../data/mock/dataSources';
-import { initialTimelineEvents } from '../data/mock/timelineData';
 import type {
   User, Module, ApiKey, DataSourceCategory, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
   DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey, SuggestedSource,
   PoliticianDataResponse, ThemeConfig, HomepageConfig
 } from '../types';
-import { generateMysqlInstaller } from './sqlGenerator';
-import {
-    generateFullDashboardData,
-    generatePoliticalLeadership,
-    generatePoliticalSquad,
-    generateDeepPoliticianAnalysis,
-    generateRealEmployees,
-    generateRealCompanies,
-    generateRealContracts,
-    generateRealLawsuits,
-    generateRealSocialPosts,
-    generateRealTimeline
-} from './geminiService';
 
-// ... (initial constants maintained) ...
-const initialPlans: UserPlan[] = [
-    { id: 'starter', name: 'Starter', features: [], modules: ['dashboard'], requestLimit: 100 },
-    { id: 'pro', name: 'Pro', features: ['ai_analysis', 'own_api_key'], modules: ['dashboard', 'political', 'employees'], requestLimit: 500 },
-    { id: 'enterprise', name: 'Enterprise', features: ['ai_analysis', 'advanced_search', 'data_export', 'own_api_key', 'priority_support'], modules: ['dashboard', 'political', 'employees', 'companies', 'contracts', 'judicial', 'social', 'timeline', 'ocr', 'research'], requestLimit: -1 }
-];
-
-const initialFeatures: Feature[] = [
-    { key: 'ai_analysis', name: 'Análise IA', description: 'Acesso aos modelos Gemini para insights.' },
-    { key: 'advanced_search', name: 'Busca Avançada', description: 'Filtros complexos e busca forense.' },
-    { key: 'data_export', name: 'Exportação de Dados', description: 'Download em CSV, JSON e PDF.' },
-    { key: 'own_api_key', name: 'Chave de API Própria', description: 'Use sua própria cota do Google Cloud.' },
-    { key: 'priority_support', name: 'Suporte Prioritário', description: 'Atendimento dedicado.' },
-];
-
-const defaultDashboardWidgets: DashboardWidget[] = [
+const DEFAULT_DASHBOARD_WIDGETS: DashboardWidget[] = [
     { id: 'mayor', title: 'Prefeito', visible: true },
     { id: 'vice_mayor', title: 'Vice-Prefeito', visible: true },
     { id: 'stats', title: 'Estatísticas Gerais', visible: true },
@@ -51,71 +17,25 @@ const defaultDashboardWidgets: DashboardWidget[] = [
     { id: 'data_sources', title: 'Fontes de Dados', visible: true },
 ];
 
-const initialThemeConfig: ThemeConfig = {
-    primary: '#0D1117',
-    secondary: '#161B22',
-    accent: '#30363D',
-    text: '#E6EDF3',
-    blue: '#3B82F6'
-};
-
-const initialHomepageConfig: HomepageConfig = {
-    active: true,
-    theme: 'modern',
-    title: 'Sistema de Investigação Estratégica',
-    subtitle: 'Plataforma de Inteligência Governamental',
-    heroImageUrl: '',
-    logoUrl: '',
-    features: [],
-    customColors: { background: '#000000', text: '#ffffff', primary: '#3B82F6' }
-};
+const INITIAL_FEATURES: Feature[] = [
+    { key: 'ai_analysis', name: 'Análise IA', description: 'Acesso aos modelos Gemini para insights.' },
+    { key: 'advanced_search', name: 'Busca Avançada', description: 'Filtros complexos e busca forense.' },
+    { key: 'data_export', name: 'Exportação de Dados', description: 'Download em CSV, JSON e PDF.' },
+    { key: 'own_api_key', name: 'Chave de API Própria', description: 'Use sua própria cota do Google Cloud.' },
+    { key: 'priority_support', name: 'Suporte Prioritário', description: 'Atendimento dedicado.' },
+];
 
 const CURRENT_VERSION = '3.1.0'; 
-const DEFAULT_API_TOKEN = 'minha-senha-segura-123';
-
-interface DatabaseSchema {
-    users: User[];
-    modules: Module[];
-    apiKeys: ApiKey[];
-    dataSources: DataSourceCategory[];
-    plans: UserPlan[];
-    politicians: Politician[]; 
-    employees: Employee[];
-    companies: Company[];
-    contracts: Contract[];
-    lawsuits: Lawsuit[];
-    socialPosts: SocialPost[];
-    timelineEvents: TimelineEvent[];
-    dashboardData: Record<string, DashboardData>;
-    dashboardWidgets: DashboardWidget[];
-    dbConfig: DbConfig;
-    systemPrompt: string;
-    logs: LogEntry[];
-    aiAutomationSettings: AiAutomationSettings;
-    themeConfig: ThemeConfig;
-    homepageConfig: HomepageConfig;
-}
 
 class DbService {
-    private data: DatabaseSchema | null = null;
-    private initialized = false;
-    private syncTimeout: any = null;
-
-    constructor() {
-        this.init();
-    }
-
     private getApiUrl(): string {
-        // Use relative path for production to avoid CORS issues and port mismatches.
-        // Vite proxy (dev) and Nginx (prod) handle the redirection to the backend.
         return '/api'; 
     }
 
     private getApiHeaders(): HeadersInit {
         const token = localStorage.getItem('auth_token');
-        const headers: any = {
+        const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            'x-sync-token': this.data?.dbConfig?.apiToken || DEFAULT_API_TOKEN
         };
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
@@ -123,101 +43,58 @@ class DbService {
         return headers;
     }
 
+    private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+        const response = await fetch(`${this.getApiUrl()}${endpoint}`, {
+            ...options,
+            headers: { ...this.getApiHeaders(), ...options.headers }
+        });
+
+        if (!response.ok) {
+            // Try to parse error message from JSON, fallback to status text
+            let errorMessage = `Erro HTTP ${response.status}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.message) errorMessage = errorData.message;
+            } catch (e) { /* ignore JSON parse error */ }
+            
+            throw new Error(errorMessage);
+        }
+        
+        // Handle 204 No Content
+        if (response.status === 204) return {} as T;
+
+        return response.json();
+    }
+
+    // --- Infrastructure & Connectivity ---
+
     async testConnection(): Promise<{ status: string, details: string }> {
         try {
-            // We use /system/status as the health check endpoint
             const response = await fetch(`${this.getApiUrl()}/system/status`, {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' }
             });
             
             const contentType = response.headers.get("content-type");
-            
             if (contentType && contentType.includes("text/html")) {
-                 console.warn("[DB] Proxy Error: Received HTML from API endpoint.");
-                 return { status: 'Falha', details: 'ERRO DE PROXY: Nginx retornou HTML (index.html) em vez de JSON.' };
+                 return { status: 'Falha', details: 'ERRO DE PROXY: Nginx retornou HTML.' };
             }
             
-            if (!response.ok) {
-                return { status: 'Erro Backend', details: `HTTP ${response.status}` };
-            }
+            if (!response.ok) return { status: 'Erro Backend', details: `HTTP ${response.status}` };
             
-            const data = await response.json();
             return { status: 'Conectado', details: `Online` };
         } catch (e) {
-            console.warn("[DB] Connection error:", e);
             return { status: 'Offline', details: 'Servidor inalcançável.' };
         }
     }
 
-    private async init() {
-        try {
-            // Ensure minimal initialization for UI rendering
-            if (!this.data) await this.resetDatabase(false);
-            this.initialized = true;
-        } catch (e) {
-            console.error("Init failed", e);
-        }
-    }
-
-    private async ensureReady() {
-        if (!this.initialized) await this.init();
-    }
-
-    async resetDatabase(persist = true) {
-        // Sets default structure to prevent UI crashes if backend is unreachable
-        this.data = {
-            users: initialUsers,
-            modules: initialModules,
-            apiKeys: initialApiKeys,
-            dataSources: initialDataSources,
-            plans: initialPlans,
-            politicians: [],
-            employees: [],
-            companies: [],
-            contracts: [],
-            lawsuits: [],
-            socialPosts: [],
-            timelineEvents: initialTimelineEvents,
-            dashboardData: {},
-            dashboardWidgets: defaultDashboardWidgets,
-            dbConfig: { 
-                apiUrl: '', 
-                apiToken: DEFAULT_API_TOKEN, 
-                status: 'Conectado',
-                host: '127.0.0.1',
-                port: '3306',
-                user: 'sie301',
-                password: '***',
-                database: 'sie301'
-            },
-            systemPrompt: 'Você é um analista de inteligência estratégica governamental.',
-            logs: [],
-            aiAutomationSettings: { isEnabled: false, frequency: 'daily' },
-            themeConfig: initialThemeConfig,
-            homepageConfig: initialHomepageConfig
-        };
-    }
-
-    private async request(endpoint: string, options: RequestInit = {}) {
-        await this.ensureReady();
-        
-        const res = await fetch(`${this.getApiUrl()}${endpoint}`, {
-            ...options,
-            headers: { ...this.getApiHeaders(), ...options.headers }
-        });
-
-        if (!res.ok) {
-            const errorData = await res.json().catch(() => ({}));
-            throw new Error(errorData.message || `Erro HTTP ${res.status}`);
-        }
-        return res.json();
-    }
-
-    // --- Public Methods ---
+    // --- Authentication ---
 
     async login(username: string, password: string): Promise<User> { 
-        const res = await this.request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+        const res = await this.request<{user: User, token: string}>('/auth/login', { 
+            method: 'POST', 
+            body: JSON.stringify({ username, password }) 
+        });
         if (res.token) localStorage.setItem('auth_token', res.token);
         return res.user;
     }
@@ -226,17 +103,21 @@ class DbService {
         const token = localStorage.getItem('auth_token');
         if (!token) return null;
         try {
-            return await this.request('/auth/me');
+            return await this.request<User>('/auth/me');
         } catch (error) {
             localStorage.removeItem('auth_token');
             return null;
         }
     }
 
+    // --- User Management ---
+
     async getUsers(): Promise<User[]> { return this.request('/users'); }
     async saveUser(user: User, adminUsername: string) { return this.request('/users', { method: 'POST', body: JSON.stringify(user) }); }
     async deleteUser(id: number, adminUsername: string): Promise<boolean> { return this.request(`/users/${id}`, { method: 'DELETE' }).then(() => true).catch(() => false); }
     async updateUserProfile(id: number, updates: Partial<User>): Promise<User> { return this.request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); }
+
+    // --- Modules & Plans ---
 
     async getModules(): Promise<Module[]> { return this.request('/modules'); }
     async getPlans(): Promise<UserPlan[]> { return this.request('/plans'); }
@@ -245,29 +126,28 @@ class DbService {
     
     async getUserActiveModules(user: User): Promise<Module[]> {
         try {
-            const modules = await this.getModules();
-            const plans = await this.getPlans();
+            const [modules, plans] = await Promise.all([this.getModules(), this.getPlans()]);
             const plan = plans.find(p => p.id === user.planId);
-            return plan ? modules.filter(m => m.active && plan.modules.includes(m.id)) : [];
-        } catch (e) {
-            return initialModules;
-        }
+            if (!plan) return [];
+            // Return active modules that are included in the user's plan
+            return modules.filter(m => m.active && plan.modules.includes(m.id));
+        } catch (e) { return []; }
     }
 
     async getUserPlanDetails(user: User) {
         const plans = await this.getPlans();
         const plan = plans.find(p => p.id === user.planId);
-        const features = initialFeatures;
         if (!plan) throw new Error("Plan not found");
-        return { plan, features: features.map(f => ({ ...f, isActive: plan.features.includes(f.key) })) };
+        return { plan, features: INITIAL_FEATURES.map(f => ({ ...f, isActive: plan.features.includes(f.key) })) };
     }
 
     async checkUserFeatureAccess(userId: number, featureKey: FeatureKey): Promise<boolean> {
-        const user = (await this.getUsers()).find(u => u.id === userId);
-        if (!user) return false;
-        const plans = await this.getPlans();
-        const plan = plans.find(p => p.id === user.planId);
-        return plan ? plan.features.includes(featureKey) : false;
+        try {
+            const user = await this.request<User>(`/auth/me`); // Or fetch generic user if needed
+            const plans = await this.getPlans();
+            const plan = plans.find(p => p.id === user.planId);
+            return plan ? plan.features.includes(featureKey) : false;
+        } catch (e) { return false; }
     }
 
     async getModule(view: string): Promise<Module | undefined> { return (await this.getModules()).find(m => m.view === view); }
@@ -281,6 +161,7 @@ class DbService {
         const formData = new FormData();
         formData.append('modulePackage', file);
         const token = localStorage.getItem('auth_token');
+        
         const res = await fetch(`${this.getApiUrl()}/modules/install`, {
             method: 'POST',
             headers: { 'Authorization': token ? `Bearer ${token}` : '' },
@@ -289,17 +170,21 @@ class DbService {
         if (!res.ok) throw new Error('Falha na instalação do módulo');
     }
 
+    // --- System Settings ---
+
     async getTheme(): Promise<ThemeConfig> { return this.request('/settings/theme'); }
     async saveTheme(config: ThemeConfig, user: string) { return this.request('/settings/theme', { method: 'POST', body: JSON.stringify(config) }); }
     async getHomepageConfig(): Promise<HomepageConfig> { return this.request('/settings/homepage'); }
     async saveHomepageConfig(config: HomepageConfig, user: string) { return this.request('/settings/homepage', { method: 'POST', body: JSON.stringify(config) }); }
     
-    async getSystemPrompt(): Promise<string> { return this.request('/settings/ai').then(r => r.systemPrompt); }
+    async getSystemPrompt(): Promise<string> { return this.request<{systemPrompt: string}>('/settings/ai').then(r => r.systemPrompt); }
     async setSystemPrompt(prompt: string, user: string) { return this.request('/settings/ai', { method: 'POST', body: JSON.stringify({ systemPrompt: prompt }) }); }
-    async getAiAutomationSettings(): Promise<AiAutomationSettings> { return this.request('/settings/ai').then(r => r.automation); }
+    async getAiAutomationSettings(): Promise<AiAutomationSettings> { return this.request<{automation: AiAutomationSettings}>('/settings/ai').then(r => r.automation); }
     async saveAiAutomationSettings(settings: AiAutomationSettings) { return this.request('/settings/ai/automation', { method: 'POST', body: JSON.stringify(settings) }); }
     async runAiAutomationTask() { return this.request('/settings/ai/run', { method: 'POST' }); }
-    async proxyAiRequest(payload: any) { return this.request('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); }
+    
+    // AI Proxy (Frontend -> Backend -> Google)
+    async proxyAiRequest(payload: any) { return this.request<any>('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); }
 
     async getApiKeys(): Promise<ApiKey[]> { return this.request('/settings/keys'); }
     async addApiKey(key: string, username: string) { return this.request('/settings/keys', { method: 'POST', body: JSON.stringify({ key }) }); }
@@ -308,6 +193,8 @@ class DbService {
     async setApiKeyStatus(id: number, status: string) { return this.request(`/settings/keys/${id}/toggle`, { method: 'PUT' }); }
     async saveUserApiKey(userId: number, key: string) { return this.updateUserProfile(userId, { apiKey: key, canUseOwnApiKey: true }); }
     async removeUserApiKey(userId: number) { return this.updateUserProfile(userId, { apiKey: '', canUseOwnApiKey: false }); }
+
+    // --- Domain Data (Intelligence) ---
 
     async getEmployees(refresh = false): Promise<Employee[]> { return this.request('/domain/employees'); }
     async getCompanies(): Promise<Company[]> { return this.request('/domain/companies'); }
@@ -320,22 +207,36 @@ class DbService {
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
         const url = `/dashboard/${encodeURIComponent(municipality)}`;
         if (refresh) {
-            await this.request(url, { method: 'POST' });
+            // Trigger POST to regenerate data via AI
+            return this.request(url, { method: 'POST' }); // Backend returns the new data
         }
         return this.request(url);
     }
 
+    async getPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { 
+        try {
+            const p = await this.request<Politician>(`/domain/politicians/${id}`);
+            return { data: p, timestamp: Date.now(), source: 'api' };
+        } catch (e) { throw e; }
+    }
+    
+    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { return this.getPoliticianAnalysisData(id); }
+
+    // --- System Stats & Utils ---
+
     async getDashboardWidgets(): Promise<DashboardWidget[]> {
         const stored = localStorage.getItem('dashboard_widgets');
-        return stored ? JSON.parse(stored) : defaultDashboardWidgets;
+        return stored ? JSON.parse(stored) : DEFAULT_DASHBOARD_WIDGETS;
     }
     async saveDashboardWidgets(widgets: DashboardWidget[]) { localStorage.setItem('dashboard_widgets', JSON.stringify(widgets)); }
 
     async getLogs(): Promise<LogEntry[]> { return this.request('/logs'); }
     async logActivity(level: string, message: string, user: string) { 
+        // Fire and forget to avoid blocking UI
         this.request('/logs', { method: 'POST', body: JSON.stringify({ level, message, user }) }).catch(console.error); 
     }
-    async getSystemDashboardStats() { return this.request('/system/status'); } 
+    
+    async getSystemDashboardStats() { return this.request<any>('/system/status'); } 
     async getStats() { return this.getSystemDashboardStats().then(s => s.system || {}); }
     
     async getDbConfig(): Promise<DbConfig> { return { status: (await this.testConnection()).status as any, apiUrl: '/api', apiToken: '***' }; }
@@ -362,38 +263,33 @@ class DbService {
         window.open(`${this.getApiUrl()}/data/backup/sql?token=${token}`, '_blank'); 
     }
     async getFullDatabaseBackup() { return this.request('/data/backup/json'); }
-    async resetDatabaseRemote() { return this.request('/data/reset', { method: 'POST' }); }
     
-    async getDataSources(): Promise<DataSourceCategory[]> { return initialDataSources; } 
-    async addDataSource(catId: number, source: any) { /* TODO */ }
-    async updateDataSource(id: number, updates: any) { /* TODO */ }
-    async deleteDataSource(id: number) { /* TODO */ }
-    async toggleDataSourceStatus(id: number) { /* TODO */ }
-    async addDataSourceCategory(name: string) { /* TODO */ }
-    async renameDataSourceCategory(id: number, name: string) { /* TODO */ }
-    async deleteDataSourceCategory(id: number) { /* TODO */ }
-    async addSourceToCategoryByName(source: SuggestedSource) { /* TODO */ }
-    async validateAllDataSources() { /* TODO */ }
-    async getNextSystemApiKey() { return ''; }
-    async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: "3.1.0" }; }
-    async executeServerCommand(cmd: string) { return { success: false, output: "Comando não permitido via API pública." }; }
-    async scanPoliticalSquad(municipality: string) { /* TODO: Move to backend AI service */ }
-    async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
-    async togglePoliticianMonitoring(id: string) { /* TODO */ }
-    
-    async getPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { 
-        try {
-            const p = (await this.getAllPoliticians()).find(x => x.id === id);
-            if(!p) throw new Error("Not found");
-            return { data: p, timestamp: Date.now(), source: 'api' };
-        } catch (e) {
-            throw e;
+    async resetDatabase() { 
+        const confirmed = window.confirm("ATENÇÃO: Isso irá apagar TODOS os dados do Banco de Dados MySQL. Tem certeza?");
+        if(confirmed) {
+            return this.request('/data/reset', { method: 'POST' });
         }
     }
-    
-    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { return this.getPoliticianAnalysisData(id); }
+
+    // --- Stubbed / Deprecated Methods (Kept for Interface Compatibility) ---
+    async getDataSources(): Promise<DataSourceCategory[]> { return []; }
+    async addDataSource(catId: number, source: any) { /* Stub */ }
+    async updateDataSource(id: number, updates: any) { /* Stub */ }
+    async deleteDataSource(id: number) { /* Stub */ }
+    async toggleDataSourceStatus(id: number) { /* Stub */ }
+    async addDataSourceCategory(name: string) { /* Stub */ }
+    async renameDataSourceCategory(id: number, name: string) { /* Stub */ }
+    async deleteDataSourceCategory(id: number) { /* Stub */ }
+    async addSourceToCategoryByName(source: SuggestedSource) { /* Stub */ }
+    async validateAllDataSources() { /* Stub */ }
+    async getNextSystemApiKey() { return ''; }
+    async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: CURRENT_VERSION }; }
+    async executeServerCommand(cmd: string) { return { success: false, output: "Comando não permitido via API pública." }; }
+    async scanPoliticalSquad(municipality: string) { /* Stub: Back-end handles this now */ }
+    async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
+    async togglePoliticianMonitoring(id: string) { /* Stub */ }
+    async getFeatures(): Promise<Feature[]> { return INITIAL_FEATURES; }
     async getUserUsageStats(id: number) { return { usage: 0, limit: 100 }; }
-    async getCompactDatabaseSnapshot() { return "{}"; }
 }
 
 export const dbService = new DbService();

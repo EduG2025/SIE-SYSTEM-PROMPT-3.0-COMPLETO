@@ -2,8 +2,8 @@
 type Listener = (isLoading: boolean) => void;
 
 class LoadingService {
-    private count = 0;
     private listeners: Listener[] = [];
+    private count = 0;
 
     start() {
         this.count++;
@@ -15,16 +15,16 @@ class LoadingService {
         this.notify();
     }
 
-    private notify() {
-        const isLoading = this.count > 0;
-        this.listeners.forEach(l => l(isLoading));
-    }
-
     subscribe(listener: Listener) {
         this.listeners.push(listener);
         return () => {
             this.listeners = this.listeners.filter(l => l !== listener);
         };
+    }
+
+    private notify() {
+        const isLoading = this.count > 0;
+        this.listeners.forEach(l => l(isLoading));
     }
 }
 

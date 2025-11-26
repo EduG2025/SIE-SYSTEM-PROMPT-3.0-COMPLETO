@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'sie-backend',
-    script: './server.cjs',
+    script: './server.js',
     instances: 1,
     autorestart: true,
     watch: false,

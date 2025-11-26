@@ -4,7 +4,7 @@ Este documento contém os códigos-fonte essenciais para a configuração do ser
 
 ---
 
-## 1. Servidor Node.js (`server.cjs`)
+## 1. Servidor Node.js (`server.js`)
 
 Este é o ponto de entrada da aplicação. Ele deve estar na **raiz** do projeto.
 Ele gerencia: API, Conexão MySQL, Agendamento de Tarefas (IA), Uploads e serve o Frontend (fallback).

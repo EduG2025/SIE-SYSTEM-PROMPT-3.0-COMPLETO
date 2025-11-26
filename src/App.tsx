@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 
 // Core Components
 import Sidebar from './components/Sidebar';
@@ -21,6 +20,9 @@ import { ConfigProvider, useConfig } from './contexts/ConfigContext';
 import { municipalities as initialMunicipalities } from './data/municipalities';
 import type { User, Module } from './types';
 import { dbService } from './services/dbService';
+
+// Cast ReactRouterDOM to any to avoid type errors with specific versions/environments
+const { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } = ReactRouterDOM as any;
 
 // Lazy Load Views
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -53,7 +55,7 @@ const AppContent: React.FC = () => {
   const [impersonatingAdmin, setImpersonatingAdmin] = useState<User | null>(null);
   const [municipalities, setMunicipalities] = useState<string[]>(initialMunicipalities);
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true); // New loading state for auth check
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [activeModules, setActiveModules] = useState<Module[]>([]);
   const [isLoadingModules, setIsLoadingModules] = useState(true);
   
@@ -71,9 +73,7 @@ const AppContent: React.FC = () => {
       setIsAuthLoading(true);
       try {
         const user = await dbService.validateSession();
-        if (user) {
-          setCurrentUser(user);
-        }
+        if (user) setCurrentUser(user);
       } catch (error) {
         console.warn('Sessão inválida ou expirada.');
       } finally {
@@ -88,7 +88,6 @@ const AppContent: React.FC = () => {
         setIsLoadingModules(true);
         if (currentUser) {
             try {
-                await new Promise(r => setTimeout(r, 500));
                 const modules = await dbService.getUserActiveModules(currentUser);
                 setActiveModules(modules);
             } catch (e) {
@@ -122,7 +121,7 @@ const AppContent: React.FC = () => {
         dbService.logActivity('INFO', `Usuário '${currentUser.username}' saiu.`, currentUser.username);
       }
       setCurrentUser(null);
-      localStorage.removeItem('auth_token'); // Clear token on logout
+      localStorage.removeItem('auth_token');
       setMunicipality(null);
       setImpersonatingAdmin(null);
       setIsLoading(false);
@@ -166,13 +165,9 @@ const AppContent: React.FC = () => {
   const renderUserRoutes = () => {
     const currentPath = location.pathname.split('/')[1] || 'dashboard';
     
-    if (activeModules.length > 0 && 
-        !['settings', 'dashboard', 'admin'].includes(currentPath)) {
-        
+    if (activeModules.length > 0 && !['settings', 'dashboard', 'admin'].includes(currentPath)) {
         const isAllowed = activeModules.some(m => m.view === currentPath);
-        if (!isAllowed) {
-             return <Navigate to="/dashboard" replace />;
-        }
+        if (!isAllowed) return <Navigate to="/dashboard" replace />;
     }
 
     return (
@@ -193,7 +188,6 @@ const AppContent: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard" element={<Dashboard municipality={municipality || ''} />} />
                       <Route path="/dashboard/settings" element={<DashboardSettings />} />
-                      {/* Rota de Pesquisa habilitada para Deep Linking via ?autoQuery=... */}
                       <Route path="/research" element={<ResearchModule />} />
                       <Route path="/political" element={<PoliticalNetwork />} />
                       <Route path="/political/:politicianId" element={<PoliticalModule />} />
@@ -222,7 +216,6 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show spinner while loading config OR validating session
   if (isConfigLoading || isAuthLoading) {
       return (
         <div className="h-screen w-full flex flex-col items-center justify-center bg-brand-primary space-y-4">
@@ -237,14 +230,7 @@ const AppContent: React.FC = () => {
       return (
         <Routes>
           <Route path="/login" element={<Login onLogin={handleLogin} />} />
-          <Route 
-            path="/" 
-            element={
-                homepage?.active 
-                ? <Suspense fallback={<Spinner />}><Homepage config={homepage} /></Suspense> 
-                : <Navigate to="/login" replace />
-            } 
-          />
+          <Route path="/" element={homepage?.active ? <Suspense fallback={<Spinner />}><Homepage config={homepage} /></Suspense> : <Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       );

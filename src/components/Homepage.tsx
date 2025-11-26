@@ -1,7 +1,8 @@
-
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import * as ReactRouterDOM from 'react-router-dom';
 import type { HomepageConfig, HomepageFeature } from '../types';
+
+const { useNavigate } = ReactRouterDOM as any;
 
 interface HomepageProps {
     config: HomepageConfig;

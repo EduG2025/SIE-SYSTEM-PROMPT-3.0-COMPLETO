@@ -19,7 +19,13 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "allowJs": false 
+    "allowJs": false,
+
+    /* Paths */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": [
@@ -29,8 +35,11 @@
     "src/routes/**/*", 
     "src/middleware/**/*",
     "src/config/**/*",
+    "server.js",
     "server.cjs",
-    "scripts/**/*"
+    "scripts/**/*",
+    "src/data/mock/**/*",
+    "src/test/**/*"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
