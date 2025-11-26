@@ -21,25 +21,34 @@
     "noFallthroughCasesInSwitch": true,
     "allowJs": false,
 
-    /* Paths */
+    /* Paths & Aliases */
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "exclude": [
-    "node_modules", 
-    "src/models/**/*", 
-    "src/controllers/**/*", 
-    "src/routes/**/*", 
-    "src/middleware/**/*",
-    "src/config/**/*",
+    "node_modules",
+    "dist",
+    "coverage",
+    /* Backend Exclusion Zone - Critical for Vite Build */
     "server.js",
     "server.cjs",
     "scripts/**/*",
-    "src/data/mock/**/*",
-    "src/test/**/*"
+    "src/models/**/*",
+    "src/controllers/**/*",
+    "src/routes/**/*",
+    "src/middleware/**/*",
+    "src/config/**/*",
+    "src/services/backendAiService.js",
+    "src/services/authService.js",
+    "src/services/homepageService.js",
+    "src/services/schedulerService.js",
+    "src/services/userService.js",
+    "src/services/moduleService.js",
+    "src/services/themeService.js",
+    "src/services/backupService.js"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

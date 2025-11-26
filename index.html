@@ -1,105 +1,54 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>S.I.E. 3.1.0</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      // Load theme from local storage or default
-      const savedTheme = localStorage.getItem('sie_theme');
-      const theme = savedTheme ? JSON.parse(savedTheme) : {
-        primary: '#0D1117',
-        secondary: '#161B22',
-        accent: '#30363D',
-        text: '#E6EDF3',
-        blue: '#3B82F6'
-      };
-
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              'brand-primary': theme.primary,
-              'brand-secondary': theme.secondary,
-              'brand-accent': theme.accent,
-              'brand-light': '#8B949E',
-              'brand-text': theme.text,
-              'brand-blue': theme.blue,
-              'brand-red': '#EF4444',
-              'brand-green': '#22C55E',
-              'brand-yellow': '#EAB308',
-              'brand-orange': '#F97316',
-              'brand-purple': '#8B5CF6',
-              'brand-cyan': '#06B6D4',
-              'sie-blue-950': '#0d1a2e',
-              'sie-blue-900': '#102a4e',
-              'sie-blue-800': '#1b3f7a',
-              'sie-blue-700': '#2455a7',
-            },
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-            },
-            animation: {
-              'fade-in-up': 'fadeInUp 0.3s ease-out forwards',
-              'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              'spin': 'spin 1s linear infinite',
-              'loading-bar': 'loadingBar 1.5s linear infinite',
-              'shimmer': 'shimmer 2s linear infinite',
-            },
-            keyframes: {
-              fadeInUp: {
-                '0%': { opacity: '0', transform: 'translateY(20px)' },
-                '100%': { opacity: '1', transform: 'translateY(0)' },
-              },
-              pulse: {
-                '50%': { opacity: '.5' },
-              },
-              spin: {
-                from: { transform: 'rotate(0deg)' },
-                to: { transform: 'rotate(360deg)' },
-              },
-              loadingBar: {
-                '0%': { backgroundPosition: '100% 0' },
-                '100%': { backgroundPosition: '-100% 0' },
-              },
-              shimmer: {
-                '0%': { backgroundPosition: '-200% 0' },
-                '100%': { backgroundPosition: '200% 0' }
-              }
-            }
-          },
-        },
-      }
-    </script>
+    <title>S.I.E. 3.1.0 - Inteligência Estratégica</title>
+    
+    <!-- Preload Critical Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+      // Inline Theme Loader: Evita "Flash of Unstyled Content" (FOUC) aplicando cores antes do React carregar
+      (function() {
+        try {
+          const savedTheme = localStorage.getItem('sie_theme');
+          if (savedTheme) {
+            const theme = JSON.parse(savedTheme);
+            const root = document.documentElement;
+            root.style.setProperty('--color-primary', theme.primary);
+            root.style.setProperty('--color-secondary', theme.secondary);
+            root.style.setProperty('--color-accent', theme.accent);
+            root.style.setProperty('--color-text', theme.text);
+            root.style.setProperty('--color-blue', theme.blue);
+          }
+        } catch (e) {
+          console.warn('Theme load failed', e);
+        }
+      })();
+    </script>
   <script type="importmap">
 {
   "imports": {
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.1",
-    "recharts": "https://aistudiocdn.com/recharts@^3.4.1",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.25.1",
-    "markdown-it": "https://aistudiocdn.com/markdown-it@^14.1.0",
-    "vite": "https://aistudiocdn.com/vite@^7.2.2",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
     "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vitest": "https://aistudiocdn.com/vitest@^4.0.13",
-    "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.9.1",
-    "vitest/": "https://aistudiocdn.com/vitest@^4.0.13/",
-    "url": "https://aistudiocdn.com/url@^0.11.4"
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "vitest": "https://aistudiocdn.com/vitest@^4.0.14",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
+    "markdown-it": "https://aistudiocdn.com/markdown-it@^14.1.0"
   }
 }
 </script>
 </head>
-  <body class="bg-brand-primary">
+  <body class="bg-brand-primary text-brand-text font-sans antialiased selection:bg-brand-blue selection:text-white">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>
