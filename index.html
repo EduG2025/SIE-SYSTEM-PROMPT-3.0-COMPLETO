@@ -12,37 +12,38 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
-      // Inline Theme Loader: Evita "Flash of Unstyled Content" (FOUC) aplicando cores antes do React carregar
+      // Inline Theme Loader: Evita "Flash of Unstyled Content" (FOUC)
       (function() {
         try {
           const savedTheme = localStorage.getItem('sie_theme');
           if (savedTheme) {
             const theme = JSON.parse(savedTheme);
             const root = document.documentElement;
-            root.style.setProperty('--color-primary', theme.primary);
-            root.style.setProperty('--color-secondary', theme.secondary);
-            root.style.setProperty('--color-accent', theme.accent);
-            root.style.setProperty('--color-text', theme.text);
-            root.style.setProperty('--color-blue', theme.blue);
+            if (theme.primary) root.style.setProperty('--color-primary', theme.primary);
+            if (theme.secondary) root.style.setProperty('--color-secondary', theme.secondary);
+            if (theme.accent) root.style.setProperty('--color-accent', theme.accent);
+            if (theme.text) root.style.setProperty('--color-text', theme.text);
+            if (theme.blue) root.style.setProperty('--color-blue', theme.blue);
           }
         } catch (e) {
-          console.warn('Theme load failed', e);
+          // Silently fail to default CSS
         }
       })();
     </script>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
-    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "markdown-it": "https://aistudiocdn.com/markdown-it@^14.1.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
     "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
     "vitest": "https://aistudiocdn.com/vitest@^4.0.14",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
-    "markdown-it": "https://aistudiocdn.com/markdown-it@^14.1.0"
+    "url": "https://aistudiocdn.com/url@^0.11.4"
   }
 }
 </script>

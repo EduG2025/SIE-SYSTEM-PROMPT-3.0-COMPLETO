@@ -29,8 +29,9 @@ const Post = require('./Post');
 // --- Associações (Relacionamentos MySQL) ---
 
 // User <-> Plan
-User.belongsTo(Plan, { foreignKey: 'planId', as: 'Plan' });
+// Um Plano tem muitos Usuários, um Usuário pertence a um Plano
 Plan.hasMany(User, { foreignKey: 'planId' });
+User.belongsTo(Plan, { foreignKey: 'planId', as: 'Plan' });
 
 // User <-> Uploads
 User.hasMany(MediaFile, { foreignKey: 'uploadedBy' });

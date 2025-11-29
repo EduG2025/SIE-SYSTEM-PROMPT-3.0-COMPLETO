@@ -1,9 +1,10 @@
 import type {
-  User, Module, ApiKey, DataSourceCategory, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
+  User, Module, ApiKey, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
   DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey, SuggestedSource,
-  PoliticianDataResponse, ThemeConfig, HomepageConfig
+  PoliticianDataResponse, ThemeConfig, HomepageConfig, DataSourceCategory
 } from '../types';
 
+// Configuração padrão caso o backend não responda
 const DEFAULT_DASHBOARD_WIDGETS: DashboardWidget[] = [
     { id: 'mayor', title: 'Prefeito', visible: true },
     { id: 'vice_mayor', title: 'Vice-Prefeito', visible: true },
@@ -25,10 +26,9 @@ const INITIAL_FEATURES: Feature[] = [
     { key: 'priority_support', name: 'Suporte Prioritário', description: 'Atendimento dedicado.' },
 ];
 
-const CURRENT_VERSION = '3.1.0'; 
-
 class DbService {
     private getApiUrl(): string {
+        // Em produção, usa caminho relativo para o Proxy Nginx lidar com o roteamento
         return '/api'; 
     }
 
@@ -50,17 +50,21 @@ class DbService {
         });
 
         if (!response.ok) {
-            // Try to parse error message from JSON, fallback to status text
             let errorMessage = `Erro HTTP ${response.status}`;
             try {
                 const errorData = await response.json();
                 if (errorData.message) errorMessage = errorData.message;
-            } catch (e) { /* ignore JSON parse error */ }
-            
+            } catch (e) { 
+                // Se falhar o parse JSON, pode ser que o Nginx retornou HTML
+                const text = await response.text();
+                if (text.includes('<!DOCTYPE html>')) {
+                    console.error('Erro de Proxy detectado: Endpoint retornou HTML.');
+                    throw new Error('Erro de conexão com o servidor API (Proxy Error).');
+                }
+            }
             throw new Error(errorMessage);
         }
         
-        // Handle 204 No Content
         if (response.status === 204) return {} as T;
 
         return response.json();
@@ -70,17 +74,21 @@ class DbService {
 
     async testConnection(): Promise<{ status: string, details: string }> {
         try {
-            const response = await fetch(`${this.getApiUrl()}/system/status`, {
+            // Tenta endpoint de health check
+            const response = await fetch(`${this.getApiUrl()}/health`, {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' }
             });
             
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.includes("text/html")) {
-                 return { status: 'Falha', details: 'ERRO DE PROXY: Nginx retornou HTML.' };
+                 console.warn("Proxy Error: Received HTML instead of JSON from /api/health");
+                 return { status: 'Falha', details: 'Erro de Proxy Nginx (Retornou HTML).' };
             }
             
-            if (!response.ok) return { status: 'Erro Backend', details: `HTTP ${response.status}` };
+            if (!response.ok) {
+                return { status: 'Erro Backend', details: `HTTP ${response.status}` };
+            }
             
             return { status: 'Conectado', details: `Online` };
         } catch (e) {
@@ -129,7 +137,6 @@ class DbService {
             const [modules, plans] = await Promise.all([this.getModules(), this.getPlans()]);
             const plan = plans.find(p => p.id === user.planId);
             if (!plan) return [];
-            // Return active modules that are included in the user's plan
             return modules.filter(m => m.active && plan.modules.includes(m.id));
         } catch (e) { return []; }
     }
@@ -143,8 +150,9 @@ class DbService {
 
     async checkUserFeatureAccess(userId: number, featureKey: FeatureKey): Promise<boolean> {
         try {
-            const user = await this.request<User>(`/auth/me`); // Or fetch generic user if needed
             const plans = await this.getPlans();
+            // Simple check, ideally backend validates this
+            const user = await this.request<User>('/auth/me');
             const plan = plans.find(p => p.id === user.planId);
             return plan ? plan.features.includes(featureKey) : false;
         } catch (e) { return false; }
@@ -167,7 +175,8 @@ class DbService {
             headers: { 'Authorization': token ? `Bearer ${token}` : '' },
             body: formData
         });
-        if (!res.ok) throw new Error('Falha na instalação do módulo');
+        
+        if(!res.ok) throw new Error('Falha na instalação do módulo');
     }
 
     // --- System Settings ---
@@ -207,8 +216,7 @@ class DbService {
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
         const url = `/dashboard/${encodeURIComponent(municipality)}`;
         if (refresh) {
-            // Trigger POST to regenerate data via AI
-            return this.request(url, { method: 'POST' }); // Backend returns the new data
+            return this.request(url, { method: 'POST' });
         }
         return this.request(url);
     }
@@ -232,14 +240,21 @@ class DbService {
 
     async getLogs(): Promise<LogEntry[]> { return this.request('/logs'); }
     async logActivity(level: string, message: string, user: string) { 
-        // Fire and forget to avoid blocking UI
         this.request('/logs', { method: 'POST', body: JSON.stringify({ level, message, user }) }).catch(console.error); 
     }
     
     async getSystemDashboardStats() { return this.request<any>('/system/status'); } 
-    async getStats() { return this.getSystemDashboardStats().then(s => s.system || {}); }
+    async getStats() { 
+        try {
+            const status = await this.getSystemDashboardStats();
+            return status.system || {};
+        } catch (e) { return {}; }
+    }
     
-    async getDbConfig(): Promise<DbConfig> { return { status: (await this.testConnection()).status as any, apiUrl: '/api', apiToken: '***' }; }
+    async getDbConfig(): Promise<DbConfig> { 
+        const connection = await this.testConnection();
+        return { status: connection.status as any, apiUrl: '/api', apiToken: '***' }; 
+    }
     async saveDbConfig(config: DbConfig, user: string) { return Promise.resolve(); }
 
     async uploadFile(file: File): Promise<string> {
@@ -271,7 +286,7 @@ class DbService {
         }
     }
 
-    // --- Stubbed / Deprecated Methods (Kept for Interface Compatibility) ---
+    // --- Stubs para compatibilidade ---
     async getDataSources(): Promise<DataSourceCategory[]> { return []; }
     async addDataSource(catId: number, source: any) { /* Stub */ }
     async updateDataSource(id: number, updates: any) { /* Stub */ }
@@ -283,9 +298,9 @@ class DbService {
     async addSourceToCategoryByName(source: SuggestedSource) { /* Stub */ }
     async validateAllDataSources() { /* Stub */ }
     async getNextSystemApiKey() { return ''; }
-    async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: CURRENT_VERSION }; }
+    async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: "3.1.0" }; }
     async executeServerCommand(cmd: string) { return { success: false, output: "Comando não permitido via API pública." }; }
-    async scanPoliticalSquad(municipality: string) { /* Stub: Back-end handles this now */ }
+    async scanPoliticalSquad(municipality: string) { /* Stub: Backend handles this */ }
     async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
     async togglePoliticianMonitoring(id: string) { /* Stub */ }
     async getFeatures(): Promise<Feature[]> { return INITIAL_FEATURES; }

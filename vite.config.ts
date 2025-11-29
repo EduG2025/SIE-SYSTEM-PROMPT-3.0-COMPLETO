@@ -1,19 +1,22 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/',
   resolve: {
-    alias: [
-      { find: '@', replacement: path.resolve(__dirname, 'src') }
-    ],
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
   },
   server: {
     port: 5173,
-    host: true, // Expor na rede (necessário para Docker/VPS checks)
+    host: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3000',
@@ -23,18 +26,17 @@ export default defineConfig({
       '/media': {
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
-        secure: false
-      }
+        secure: false,
+      },
     },
   },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    target: 'esnext',
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
-      // IMPORTANTE: Nunca inclua arquivos de backend no bundle do frontend
+      // CRÍTICO: Garante que bibliotecas exclusivas do Node.js não sejam incluídas no bundle do navegador
       external: [
         'sequelize',
         'mysql2',
@@ -42,9 +44,6 @@ export default defineConfig({
         'path',
         'os',
         'crypto',
-        'net',
-        'tls',
-        'stream',
         'dotenv',
         'express',
         'jsonwebtoken',
@@ -53,20 +52,18 @@ export default defineConfig({
         'multer',
         'adm-zip',
         'helmet',
-        'morgan',
         'compression'
       ],
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-ui': ['recharts', 'framer-motion', 'lucide-react'],
-          'vendor-utils': ['axios', 'date-fns', 'lodash', 'uuid', 'markdown-it'],
-          'vendor-ai': ['@google/genai']
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['recharts', 'framer-motion', 'lucide-react'],
+          'utils-vendor': ['axios', 'date-fns', 'lodash', 'markdown-it']
         },
       },
     },
   },
   optimizeDeps: {
-    exclude: ['sequelize', 'mysql2'] // Garante que o Vite não tente pré-processar libs de backend
+    exclude: ['sequelize', 'mysql2', 'express'] 
   }
 });

@@ -3,16 +3,24 @@ const { ApiKey, SystemSetting, DashboardData, AuditLog } = require('../models');
 
 // Rotates system keys for load balancing
 const getSystemApiKey = async () => {
-    const keys = await ApiKey.findAll({ where: { status: 'Ativa', type: 'System' } });
-    if (keys.length === 0) {
-        if (process.env.API_KEY) return process.env.API_KEY;
-        throw new Error("Nenhuma chave de sistema disponível para automação.");
+    try {
+        const keys = await ApiKey.findAll({ where: { status: 'Ativa', type: 'System' } });
+        if (keys.length === 0) {
+            if (process.env.API_KEY) return process.env.API_KEY;
+            throw new Error("Nenhuma chave de sistema disponível.");
+        }
+        // Simple Random Load Balancer
+        const keyRecord = keys[Math.floor(Math.random() * keys.length)];
+        
+        // Fire and forget update usage
+        keyRecord.increment('usageCount').catch(err => console.error('Erro ao atualizar contador de chave:', err));
+        
+        return keyRecord.key;
+    } catch (e) {
+        console.error("Erro ao obter chave de API:", e);
+        // Fallback de emergência se o DB falhar mas o env existir
+        return process.env.API_KEY;
     }
-    // Simple Random Load Balancer
-    const keyRecord = keys[Math.floor(Math.random() * keys.length)];
-    // Fire and forget update
-    keyRecord.increment('usageCount');
-    return keyRecord.key;
 };
 
 // Robust JSON Extractor that handles Markdown blocks and loose text
@@ -36,7 +44,6 @@ const extractJson = (text) => {
         return JSON.parse(text);
     } catch (e) {
         console.error("JSON Parse Error in Backend AI:", e.message);
-        // Return null to indicate failure
         return null;
     }
 };
@@ -49,6 +56,8 @@ const BackendAiService = {
     refreshDashboardData: async (municipality = 'Brasília, DF') => {
         try {
             const apiKey = await getSystemApiKey();
+            if (!apiKey) throw new Error("Sem chave de API disponível");
+
             const ai = new GoogleGenAI({ apiKey });
             
             // Carrega prompt do sistema

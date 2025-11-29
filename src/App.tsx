@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 
@@ -83,6 +84,8 @@ const AppContent: React.FC = () => {
     validateSession();
   }, []);
 
+  // OTIMIZAÇÃO: Busca módulos apenas quando a identidade ou permissões do usuário mudam.
+  // Ignora alterações em 'usage', 'lastUsageReset', etc.
   useEffect(() => {
     const syncModules = async () => {
         setIsLoadingModules(true);
@@ -100,7 +103,7 @@ const AppContent: React.FC = () => {
     };
 
     syncModules();
-  }, [currentUser?.id, currentUser?.role, currentUser?.planId]);
+  }, [currentUser?.id, currentUser?.planId, currentUser?.role]);
 
   useEffect(() => {
     if (municipality) {
@@ -282,3 +285,4 @@ const App: React.FC = () => (
 );
 
 export default App;
+    

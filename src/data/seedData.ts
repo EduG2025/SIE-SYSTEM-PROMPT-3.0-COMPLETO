@@ -56,7 +56,17 @@ export const initialModules: Module[] = [
     { id: 'mod-empr', name: 'Empresas', view: 'companies', icon: 'companies', active: true, hasSettings: true, category: 'entities', updateFrequency: '24h' },
     { id: 'mod-cont', name: 'Contratos', view: 'contracts', icon: 'contracts', active: true, hasSettings: true, category: 'intelligence', updateFrequency: '6h' },
     { id: 'mod-judi', name: 'Judicial', view: 'judicial', icon: 'judicial', active: true, hasSettings: true, category: 'intelligence', updateFrequency: '24h' },
-    { id: 'mod-soci', name: 'Redes Sociais', view: 'social', icon: 'social', active: true, hasSettings: true, category: 'intelligence', updateFrequency: '1h' },
+    { 
+        id: 'mod-soci', 
+        name: 'Módulo de Monitoramento de Redes Sociais', 
+        view: 'social', 
+        icon: 'social', 
+        active: true, 
+        hasSettings: true, 
+        category: 'intelligence', 
+        updateFrequency: '1h',
+        rules: "Monitore as principais plataformas (Facebook, Instagram, X, TikTok) em busca de menções ao município e administração. Realize análise de sentimento avançada, detectando ironia, insatisfação popular e tendências virais. Classifique como Positivo, Negativo ou Neutro."
+    },
     { id: 'mod-time', name: 'Timeline', view: 'timeline', icon: 'timeline', active: true, hasSettings: true, category: 'intelligence', updateFrequency: '24h' },
     { id: 'mod-ocr', name: 'OCR Jurídico', view: 'ocr', icon: 'document-text', active: true, hasSettings: false, category: 'intelligence', updateFrequency: 'realtime' },
 ];

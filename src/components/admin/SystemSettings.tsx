@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import type { ApiKey, DbConfig, User, HomepageConfig, HomepageFeature } from '../../types';
+import type { ApiKey, DbConfig, User, HomepageConfig, HomepageFeature, AiAutomationSettings } from '../../types';
 import { dbService } from '../../services/dbService';
 import { validateApiKey } from '../../services/geminiService';
 import { useConfig } from '../../contexts/ConfigContext'; // Import Hook
@@ -8,6 +8,7 @@ import Modal from '../common/Modal';
 import ToggleSwitch from '../common/ToggleSwitch';
 import ApiKeyFormModal from './system/ApiKeyFormModal';
 import SystemAutoUpdater from './system/SystemAutoUpdater';
+import AIAutomationPanel from './datasources/AIAutomationPanel';
 
 type SystemTab = 'infrastructure' | 'ai' | 'appearance' | 'homepage' | 'autoupdate';
 
@@ -157,6 +158,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
     const [isDbModalOpen, setIsDbModalOpen] = useState(false);
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState('');
+    const [automationSettings, setAutomationSettings] = useState<AiAutomationSettings | null>(null);
     const [isValidatingPool, setIsValidatingPool] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
 
@@ -173,6 +175,7 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
         dbService.getSystemPrompt().then(setSystemPrompt);
         dbService.getApiKeys().then(setApiKeys);
         dbService.getDbConfig().then(setDbConfig);
+        dbService.getAiAutomationSettings().then(setAutomationSettings);
         // Themes and Homepage are now handled by Context
     };
 
@@ -418,10 +421,26 @@ const SystemSettings: React.FC<SystemSettingsProps> = ({ showToast, currentUser 
                         value={systemPrompt}
                         onChange={(e) => setSystemPrompt(e.target.value)}
                         className="w-full h-80 bg-brand-primary p-3 rounded border border-brand-accent font-mono text-sm leading-relaxed focus:ring-brand-blue focus:border-brand-blue"
+                        placeholder="Defina as regras globais e a personalidade da IA..."
                     />
                      <button onClick={handleSavePrompt} className="mt-4 bg-brand-blue hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                         Salvar Regras da IA
                     </button>
+
+                    {/* AI Automation Panel */}
+                    {automationSettings && (
+                        <div className="mt-8 pt-6 border-t border-brand-accent/30">
+                             <AIAutomationPanel 
+                                initialSettings={automationSettings}
+                                onSave={async (settings) => {
+                                    await dbService.saveAiAutomationSettings(settings);
+                                    showToast('Configurações de automação salvas!', 'success');
+                                    const newSettings = await dbService.getAiAutomationSettings();
+                                    setAutomationSettings(newSettings);
+                                }}
+                             />
+                        </div>
+                    )}
                 </div>
             )}
 
