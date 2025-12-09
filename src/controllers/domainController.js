@@ -1,4 +1,5 @@
 const { Politician, Company, Employee, Contract, Lawsuit, SocialPost, TimelineEvent } = require('../models');
+const BackendAiService = require('../services/backendAiService');
 
 const getModel = (type) => {
     switch (type) {
@@ -83,6 +84,30 @@ const DomainController = {
             res.json({ message: 'Item deleted' });
         } catch (error) {
             res.status(500).json({ message: 'Error deleting item', error: error.message });
+        }
+    },
+
+    // Nova função para acionar varredura de IA
+    scan: async (req, res) => {
+        try {
+            const { type } = req.params;
+            const { municipality } = req.body;
+
+            if (!municipality) return res.status(400).json({ message: 'Município é obrigatório para varredura.' });
+
+            let count = 0;
+            if (type === 'politicians') {
+                count = await BackendAiService.scanPoliticians(municipality);
+            } else if (type === 'employees') {
+                count = await BackendAiService.scanEmployees(municipality);
+            } else {
+                return res.status(400).json({ message: 'Tipo de varredura não suportado pela IA neste endpoint.' });
+            }
+
+            res.json({ success: true, count, message: `Varredura concluída. ${count} registros encontrados.` });
+        } catch (error) {
+            console.error("Scan Failed:", error);
+            res.status(500).json({ message: 'Erro durante a varredura da IA', error: error.message });
         }
     }
 };

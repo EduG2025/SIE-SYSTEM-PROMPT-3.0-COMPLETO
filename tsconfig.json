@@ -1,3 +1,4 @@
+
 {
   "compilerOptions": {
     "target": "ES2020",
@@ -28,27 +29,6 @@
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "storage",
-    /* ZONA DE EXCLUSÃO DO BACKEND - Impede que o Vite/TS tente compilar arquivos de servidor */
-    "server.js",
-    "server.cjs",
-    "scripts",
-    "src/models",
-    "src/controllers",
-    "src/routes",
-    "src/middleware",
-    "src/config",
-    "src/services/backendAiService.js",
-    "src/services/authService.js",
-    "src/services/homepageService.js",
-    "src/services/schedulerService.js",
-    "src/services/userService.js",
-    "src/services/moduleService.js",
-    "src/services/themeService.js",
-    "src/services/backupService.js"
-  ],
+  "exclude": ["node_modules", "dist", "storage", "server.js", "scripts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

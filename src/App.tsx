@@ -19,24 +19,16 @@ import { MunicipalityContext } from './contexts/MunicipalityContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ConfigProvider, useConfig } from './contexts/ConfigContext';
 import { municipalities as initialMunicipalities } from './data/municipalities';
-import type { User, Module } from './types';
-import { dbService } from './services/dbService';
+import type { User, Module, ViewType } from './types';
+// FIX: Ensure relative path is used to avoid alias resolution issues in browser
+import { dbService } from './services/dbService'; 
+import { moduleRegistry } from './moduleRegistry';
 
-// Cast ReactRouterDOM to any to avoid type errors with specific versions/environments
 const { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } = ReactRouterDOM as any;
 
-// Lazy Load Views
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const PoliticalModule = lazy(() => import('./components/PoliticalModule'));
-const PoliticalNetwork = lazy(() => import('./components/PoliticalNetwork')); 
-const EmployeesModule = lazy(() => import('./components/EmployeesModule'));
-const CompaniesModule = lazy(() => import('./components/CompaniesModule'));
-const ContractsModule = lazy(() => import('./components/ContractsModule'));
-const JudicialModule = lazy(() => import('./components/JudicialModule'));
-const SocialMediaModule = lazy(() => import('./components/SocialMediaModule'));
-const TimelineModule = lazy(() => import('./components/TimelineModule'));
-const OcrModule = lazy(() => import('./components/OcrModule'));
-const ResearchModule = lazy(() => import('./components/ResearchModule'));
+// Lazy Load Additional Views
+const PoliticalModule = lazy(() => import('./components/PoliticalModule')); 
+const ModuleDetails = lazy(() => import('./components/ModuleDetails')); 
 const Homepage = lazy(() => import('./components/Homepage')); 
 
 // Lazy Load Settings
@@ -49,6 +41,18 @@ const JudicialSettings = lazy(() => import('./components/settings/JudicialSettin
 const SocialMediaSettings = lazy(() => import('./components/settings/SocialMediaSettings'));
 const TimelineSettings = lazy(() => import('./components/settings/TimelineSettings'));
 const UserSettings = lazy(() => import('./components/settings/UserSettings'));
+
+// Registry for Settings Components based on ViewType
+const settingsRegistry: Partial<Record<ViewType, React.LazyExoticComponent<React.FC<any>>>> = {
+    dashboard: DashboardSettings,
+    political: PoliticalSettings,
+    employees: EmployeesSettings,
+    companies: CompaniesSettings,
+    contracts: ContractsSettings,
+    judicial: JudicialSettings,
+    social: SocialMediaSettings,
+    timeline: TimelineSettings,
+};
 
 const AppContent: React.FC = () => {
   const [municipality, setMunicipality] = useState<string | null>(() => localStorage.getItem('selectedMunicipality'));
@@ -68,7 +72,7 @@ const AppContent: React.FC = () => {
   const authContextValue = useMemo(() => ({ currentUser, setCurrentUser }), [currentUser]);
   const municipalityContextValue = useMemo(() => ({ municipalities, setMunicipalities }), [municipalities]);
 
-  // Session Validation Effect
+  // Session Validation
   useEffect(() => {
     const validateSession = async () => {
       setIsAuthLoading(true);
@@ -84,8 +88,7 @@ const AppContent: React.FC = () => {
     validateSession();
   }, []);
 
-  // OTIMIZAÇÃO: Busca módulos apenas quando a identidade ou permissões do usuário mudam.
-  // Ignora alterações em 'usage', 'lastUsageReset', etc.
+  // Sync Modules
   useEffect(() => {
     const syncModules = async () => {
         setIsLoadingModules(true);
@@ -168,7 +171,8 @@ const AppContent: React.FC = () => {
   const renderUserRoutes = () => {
     const currentPath = location.pathname.split('/')[1] || 'dashboard';
     
-    if (activeModules.length > 0 && !['settings', 'dashboard', 'admin'].includes(currentPath)) {
+    // Verificação de segurança
+    if (activeModules.length > 0 && !['settings', 'dashboard', 'admin', 'modules'].includes(currentPath)) {
         const isAllowed = activeModules.some(m => m.view === currentPath);
         if (!isAllowed) return <Navigate to="/dashboard" replace />;
     }
@@ -189,26 +193,35 @@ const AppContent: React.FC = () => {
             <main className="flex-1 overflow-x-hidden overflow-y-auto bg-brand-primary p-4 md:p-6 lg:p-8 animate-fade-in-up" key={location.pathname}>
                 <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
                     <Routes>
-                      <Route path="/dashboard" element={<Dashboard municipality={municipality || ''} />} />
-                      <Route path="/dashboard/settings" element={<DashboardSettings />} />
-                      <Route path="/research" element={<ResearchModule />} />
-                      <Route path="/political" element={<PoliticalNetwork />} />
-                      <Route path="/political/:politicianId" element={<PoliticalModule />} />
-                      <Route path="/political/settings" element={<PoliticalSettings />} />
-                      <Route path="/employees" element={<EmployeesModule />} />
-                      <Route path="/employees/settings" element={<EmployeesSettings />} />
-                      <Route path="/companies" element={<CompaniesModule />} />
-                      <Route path="/companies/settings" element={<CompaniesSettings />} />
-                      <Route path="/contracts" element={<ContractsModule />} />
-                      <Route path="/contracts/settings" element={<ContractsSettings />} />
-                      <Route path="/judicial" element={<JudicialModule />} />
-                      <Route path="/judicial/settings" element={<JudicialSettings />} />
-                      <Route path="/social" element={<SocialMediaModule />} />
-                      <Route path="/social/settings" element={<SocialMediaSettings />} />
-                      <Route path="/timeline" element={<TimelineModule />} />
-                      <Route path="/timeline/settings" element={<TimelineSettings />} />
-                      <Route path="/ocr" element={<OcrModule />} />
+                      {/* Configurações Globais */}
                       <Route path="/settings" element={<UserSettings />} />
+                      
+                      {/* Rota de Detalhe Genérico de Módulos */}
+                      <Route path="/modules/:moduleId" element={<ModuleDetails />} />
+
+                      {/* Rotas Dinâmicas */}
+                      {activeModules.map(module => {
+                          const Component = moduleRegistry[module.view as ViewType];
+                          const SettingsComponent = settingsRegistry[module.view as ViewType];
+                          
+                          if (!Component) return null;
+
+                          return (
+                              <React.Fragment key={module.id}>
+                                  <Route path={`/${module.view}`} element={
+                                      module.view === 'dashboard' ? <Component municipality={municipality || ''} /> : <Component />
+                                  } />
+                                  
+                                  {module.hasSettings && SettingsComponent && (
+                                      <Route path={`/${module.view}/settings`} element={<SettingsComponent />} />
+                                  )}
+                              </React.Fragment>
+                          );
+                      })}
+
+                      {/* Rotas Específicas / Nested */}
+                      <Route path="/political/:politicianId" element={<PoliticalModule />} />
+
                       <Route path="*" element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                 </Suspense>
@@ -285,4 +298,3 @@ const App: React.FC = () => (
 );
 
 export default App;
-    

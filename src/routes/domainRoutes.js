@@ -9,4 +9,7 @@ router.get('/:type/:id', protect, DomainController.getById);
 router.post('/:type', protect, DomainController.upsert);
 router.delete('/:type/:id', protect, DomainController.delete);
 
+// Rota de Ação de IA
+router.post('/:type/scan', protect, DomainController.scan);
+
 module.exports = router;

@@ -1,10 +1,11 @@
+
 import type {
   User, Module, ApiKey, Politician, Employee, Company, Contract, Lawsuit, SocialPost, TimelineEvent, UserPlan,
   DashboardData, DbConfig, LogEntry, DashboardWidget, AiAutomationSettings, Feature, FeatureKey, SuggestedSource,
-  PoliticianDataResponse, ThemeConfig, HomepageConfig, DataSourceCategory
+  PoliticianDataResponse, ThemeConfig, HomepageConfig, DataSourceCategory, DataSource
 } from '../types';
 
-// Configuração padrão caso o backend não responda
+// Configuração padrão caso o backend não responda imediatamente (Fallback)
 const DEFAULT_DASHBOARD_WIDGETS: DashboardWidget[] = [
     { id: 'mayor', title: 'Prefeito', visible: true },
     { id: 'vice_mayor', title: 'Vice-Prefeito', visible: true },
@@ -28,7 +29,8 @@ const INITIAL_FEATURES: Feature[] = [
 
 class DbService {
     private getApiUrl(): string {
-        // Em produção, usa caminho relativo para o Proxy Nginx lidar com o roteamento
+        // Em produção, o Nginx serve /api como proxy para o backend na porta 3000
+        // Em desenvolvimento (Vite), o proxy do vite.config.ts faz o mesmo
         return '/api'; 
     }
 
@@ -55,16 +57,16 @@ class DbService {
                 const errorData = await response.json();
                 if (errorData.message) errorMessage = errorData.message;
             } catch (e) { 
-                // Se falhar o parse JSON, pode ser que o Nginx retornou HTML
                 const text = await response.text();
-                if (text.includes('<!DOCTYPE html>')) {
-                    console.error('Erro de Proxy detectado: Endpoint retornou HTML.');
-                    throw new Error('Erro de conexão com o servidor API (Proxy Error).');
+                // Detecção de erro de Proxy (Nginx retornando HTML de erro)
+                if (text.includes('<!DOCTYPE html>') || text.includes('Bad Gateway')) {
+                    throw new Error('Erro de conexão com o servidor API (Backend Offline/Proxy Error).');
                 }
             }
             throw new Error(errorMessage);
         }
         
+        // Retorna vazio para 204 No Content
         if (response.status === 204) return {} as T;
 
         return response.json();
@@ -74,17 +76,10 @@ class DbService {
 
     async testConnection(): Promise<{ status: string, details: string }> {
         try {
-            // Tenta endpoint de health check
             const response = await fetch(`${this.getApiUrl()}/health`, {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' }
             });
-            
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.includes("text/html")) {
-                 console.warn("Proxy Error: Received HTML instead of JSON from /api/health");
-                 return { status: 'Falha', details: 'Erro de Proxy Nginx (Retornou HTML).' };
-            }
             
             if (!response.ok) {
                 return { status: 'Erro Backend', details: `HTTP ${response.status}` };
@@ -151,7 +146,6 @@ class DbService {
     async checkUserFeatureAccess(userId: number, featureKey: FeatureKey): Promise<boolean> {
         try {
             const plans = await this.getPlans();
-            // Simple check, ideally backend validates this
             const user = await this.request<User>('/auth/me');
             const plan = plans.find(p => p.id === user.planId);
             return plan ? plan.features.includes(featureKey) : false;
@@ -166,17 +160,44 @@ class DbService {
     async deleteModule(id: string) { return this.request(`/modules/${id}`, { method: 'DELETE' }); }
     
     async installModule(file: File): Promise<void> {
+        // Implementação real usando FormData para a rota /api/modules/install
         const formData = new FormData();
         formData.append('modulePackage', file);
         const token = localStorage.getItem('auth_token');
         
-        const res = await fetch(`${this.getApiUrl()}/modules/install`, {
+        const response = await fetch(`${this.getApiUrl()}/modules/install`, {
+            method: 'POST',
+            headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.message || 'Falha na instalação do módulo');
+        }
+    }
+
+    // --- Upload Logic ---
+
+    async uploadFile(file: File): Promise<string> {
+        const formData = new FormData();
+        formData.append('file', file);
+        const token = localStorage.getItem('auth_token');
+        
+        const res = await fetch(`${this.getApiUrl()}/upload`, {
             method: 'POST',
             headers: { 'Authorization': token ? `Bearer ${token}` : '' },
             body: formData
         });
         
-        if(!res.ok) throw new Error('Falha na instalação do módulo');
+        if(!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        return data.file.url;
+    }
+
+    async uploadFileChunked(file: File, onProgress: (progress: number) => void, cancelSignal?: AbortSignal): Promise<string> {
+        // Fallback simples por enquanto, mas preparado para lógica de chunking
+        return this.uploadFile(file); 
     }
 
     // --- System Settings ---
@@ -188,12 +209,23 @@ class DbService {
     
     async getSystemPrompt(): Promise<string> { return this.request<{systemPrompt: string}>('/settings/ai').then(r => r.systemPrompt); }
     async setSystemPrompt(prompt: string, user: string) { return this.request('/settings/ai', { method: 'POST', body: JSON.stringify({ systemPrompt: prompt }) }); }
-    async getAiAutomationSettings(): Promise<AiAutomationSettings> { return this.request<{automation: AiAutomationSettings}>('/settings/ai').then(r => r.automation); }
-    async saveAiAutomationSettings(settings: AiAutomationSettings) { return this.request('/settings/ai/automation', { method: 'POST', body: JSON.stringify(settings) }); }
-    async runAiAutomationTask() { return this.request('/settings/ai/run', { method: 'POST' }); }
     
-    // AI Proxy (Frontend -> Backend -> Google)
-    async proxyAiRequest(payload: any) { return this.request<any>('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); }
+    async getAiAutomationSettings(): Promise<AiAutomationSettings> { 
+        return this.request<{automation: AiAutomationSettings}>('/settings/ai').then(r => r.automation); 
+    }
+    
+    async saveAiAutomationSettings(settings: AiAutomationSettings) { 
+        return this.request('/settings/ai/automation', { method: 'POST', body: JSON.stringify(settings) }); 
+    }
+    
+    async runAiAutomationTask() { 
+        return this.request('/settings/ai/run', { method: 'POST' }); 
+    }
+    
+    // Proxy para chamar a IA Gemini através do backend (segurança de chave)
+    async proxyAiRequest(payload: any) { 
+        return this.request<any>('/ai/generate', { method: 'POST', body: JSON.stringify(payload) }); 
+    }
 
     async getApiKeys(): Promise<ApiKey[]> { return this.request('/settings/keys'); }
     async addApiKey(key: string, username: string) { return this.request('/settings/keys', { method: 'POST', body: JSON.stringify({ key }) }); }
@@ -203,19 +235,71 @@ class DbService {
     async saveUserApiKey(userId: number, key: string) { return this.updateUserProfile(userId, { apiKey: key, canUseOwnApiKey: true }); }
     async removeUserApiKey(userId: number) { return this.updateUserProfile(userId, { apiKey: '', canUseOwnApiKey: false }); }
 
+    // --- Data Sources Management ---
+    
+    async getDataSources(): Promise<DataSourceCategory[]> { return this.request('/datasources'); }
+    
+    async addDataSource(categoryId: number, source: any) { 
+        return this.request(`/datasources/categories/${categoryId}/sources`, { method: 'POST', body: JSON.stringify(source) }); 
+    }
+    
+    async updateDataSource(id: number, updates: any) { 
+        return this.request(`/datasources/sources/${id}`, { method: 'PUT', body: JSON.stringify(updates) }); 
+    }
+    
+    async deleteDataSource(id: number) { 
+        return this.request(`/datasources/sources/${id}`, { method: 'DELETE' }); 
+    }
+    
+    async toggleDataSourceStatus(id: number) { 
+        return this.request(`/datasources/sources/${id}/toggle`, { method: 'PUT' }); 
+    }
+    
+    async addDataSourceCategory(name: string) { 
+        return this.request('/datasources/categories', { method: 'POST', body: JSON.stringify({ name }) }); 
+    }
+    
+    async renameDataSourceCategory(id: number, name: string) { 
+        return this.request(`/datasources/categories/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }); 
+    }
+    
+    async deleteDataSourceCategory(id: number) { 
+        return this.request(`/datasources/categories/${id}`, { method: 'DELETE' }); 
+    }
+    
+    async addSourceToCategoryByName(source: SuggestedSource) { 
+        return this.request('/datasources/suggested', { method: 'POST', body: JSON.stringify(source) }); 
+    }
+    
+    async validateAllDataSources() { 
+        return this.request('/datasources/validate', { method: 'POST' }); 
+    }
+
     // --- Domain Data (Intelligence) ---
 
-    async getEmployees(refresh = false): Promise<Employee[]> { return this.request('/domain/employees'); }
+    async getEmployees(refresh = false): Promise<Employee[]> { 
+        if (refresh) {
+            const municipality = localStorage.getItem('selectedMunicipality');
+            if (municipality) {
+                // Aciona a IA no backend para varrer diários oficiais
+                await this.request('/domain/employees/scan', { method: 'POST', body: JSON.stringify({ municipality }) });
+            }
+        }
+        return this.request('/domain/employees'); 
+    }
+    
     async getCompanies(): Promise<Company[]> { return this.request('/domain/companies'); }
     async getContracts(): Promise<Contract[]> { return this.request('/domain/contracts'); }
     async getLawsuits(): Promise<Lawsuit[]> { return this.request('/domain/judicial'); }
     async getSocialPosts(): Promise<SocialPost[]> { return this.request('/domain/social'); }
     async getTimelineEvents(): Promise<TimelineEvent[]> { return this.request('/domain/timeline'); }
+    
     async getAllPoliticians(): Promise<Politician[]> { return this.request('/domain/politicians'); }
     
     async getDashboardData(municipality: string, refresh: boolean): Promise<DashboardData> {
         const url = `/dashboard/${encodeURIComponent(municipality)}`;
         if (refresh) {
+            // POST aciona o backend AI para recalcular
             return this.request(url, { method: 'POST' });
         }
         return this.request(url);
@@ -228,7 +312,35 @@ class DbService {
         } catch (e) { throw e; }
     }
     
-    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { return this.getPoliticianAnalysisData(id); }
+    async refreshPoliticianAnalysisData(id: string): Promise<PoliticianDataResponse> { 
+        // Em um sistema real, isso poderia acionar uma nova varredura específica para este ID
+        return this.getPoliticianAnalysisData(id); 
+    }
+
+    async scanPoliticalSquad(municipality: string) { 
+        // Aciona IA no backend para listar vereadores e secretários
+        return this.request('/domain/politicians/scan', { 
+            method: 'POST', 
+            body: JSON.stringify({ municipality }) 
+        }); 
+    }
+    
+    async ensurePoliticalLeadership(municipality: string): Promise<Politician[]> {
+        const data = await this.getAllPoliticians();
+        if (data.length === 0) {
+            await this.scanPoliticalSquad(municipality);
+            return this.getAllPoliticians();
+        }
+        return data;
+    }
+
+    async togglePoliticianMonitoring(id: string) { 
+        const p = await this.request<Politician>(`/domain/politicians/${id}`);
+        if (p) {
+            p.monitored = !p.monitored;
+            await this.request('/domain/politicians', { method: 'POST', body: JSON.stringify(p) });
+        }
+    }
 
     // --- System Stats & Utils ---
 
@@ -257,22 +369,6 @@ class DbService {
     }
     async saveDbConfig(config: DbConfig, user: string) { return Promise.resolve(); }
 
-    async uploadFile(file: File): Promise<string> {
-        const formData = new FormData();
-        formData.append('file', file);
-        const token = localStorage.getItem('auth_token');
-        
-        const res = await fetch(`${this.getApiUrl()}/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': token ? `Bearer ${token}` : '' },
-            body: formData
-        });
-        
-        if(!res.ok) throw new Error('Upload failed');
-        const data = await res.json();
-        return data.file.url;
-    }
-
     async downloadMysqlInstaller() { 
         const token = localStorage.getItem('auth_token');
         window.open(`${this.getApiUrl()}/data/backup/sql?token=${token}`, '_blank'); 
@@ -286,23 +382,8 @@ class DbService {
         }
     }
 
-    // --- Stubs para compatibilidade ---
-    async getDataSources(): Promise<DataSourceCategory[]> { return []; }
-    async addDataSource(catId: number, source: any) { /* Stub */ }
-    async updateDataSource(id: number, updates: any) { /* Stub */ }
-    async deleteDataSource(id: number) { /* Stub */ }
-    async toggleDataSourceStatus(id: number) { /* Stub */ }
-    async addDataSourceCategory(name: string) { /* Stub */ }
-    async renameDataSourceCategory(id: number, name: string) { /* Stub */ }
-    async deleteDataSourceCategory(id: number) { /* Stub */ }
-    async addSourceToCategoryByName(source: SuggestedSource) { /* Stub */ }
-    async validateAllDataSources() { /* Stub */ }
-    async getNextSystemApiKey() { return ''; }
     async checkForRemoteUpdates() { return { updated: false, message: "Sistema atualizado.", version: "3.1.0" }; }
     async executeServerCommand(cmd: string) { return { success: false, output: "Comando não permitido via API pública." }; }
-    async scanPoliticalSquad(municipality: string) { /* Stub: Backend handles this */ }
-    async ensurePoliticalLeadership(municipality: string) { return this.getAllPoliticians(); }
-    async togglePoliticianMonitoring(id: string) { /* Stub */ }
     async getFeatures(): Promise<Feature[]> { return INITIAL_FEATURES; }
     async getUserUsageStats(id: number) { return { usage: 0, limit: 100 }; }
 }

@@ -1,3 +1,4 @@
+
 const { sequelize } = require('../config/database');
 
 // 1. Core & Auth
@@ -9,6 +10,8 @@ const ApiKey = require('./ApiKey');
 const SystemSetting = require('./SystemSetting');
 const Module = require('./Module');
 const UserSetting = require('./UserSetting');
+const DataSource = require('./DataSource');
+const DataSourceCategory = require('./DataSourceCategory');
 
 // 3. Assets & Logs
 const MediaFile = require('./MediaFile');
@@ -29,7 +32,6 @@ const Post = require('./Post');
 // --- Associações (Relacionamentos MySQL) ---
 
 // User <-> Plan
-// Um Plano tem muitos Usuários, um Usuário pertence a um Plano
 Plan.hasMany(User, { foreignKey: 'planId' });
 User.belongsTo(Plan, { foreignKey: 'planId', as: 'Plan' });
 
@@ -49,6 +51,10 @@ UserSetting.belongsTo(User, { foreignKey: 'userId' });
 User.hasMany(Post, { foreignKey: 'userId' });
 Post.belongsTo(User, { foreignKey: 'userId' });
 
+// Data Sources Categories
+DataSourceCategory.hasMany(DataSource, { foreignKey: 'categoryId', as: 'sources' });
+DataSource.belongsTo(DataSourceCategory, { foreignKey: 'categoryId' });
+
 // Exportação Centralizada
 module.exports = {
     sequelize,
@@ -58,6 +64,8 @@ module.exports = {
     SystemSetting,
     Module,
     UserSetting,
+    DataSource,
+    DataSourceCategory,
     MediaFile,
     AuditLog,
     Politician,

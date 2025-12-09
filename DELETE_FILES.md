@@ -5,14 +5,28 @@ Os seguintes arquivos e pastas foram detectados no seu projeto e devem ser remov
 
 Execute estes comandos no terminal (na raiz do projeto):
 
-## 1. Pastas de Legado na Raiz
-*(A arquitetura correta usa apenas a pasta `/src`)*
+## 1. Pastas Duplicadas na Raiz
+*(Todo o código fonte deve residir apenas em `/src`)*
 ```bash
+rm -rf components
+rm -rf contexts
+rm -rf hooks
+rm -rf data
 rm -rf middleware
 rm -rf config controllers models routes services
 ```
 
-## 2. Dados Mockados (Falsos)
+## 2. Arquivos Soltos na Raiz
+*(Estes arquivos já foram migrados para `/src`)*
+```bash
+rm App.tsx
+rm index.tsx
+rm types.ts
+rm constants.ts
+rm moduleRegistry.ts
+```
+
+## 3. Dados Mockados Antigos
 *(O sistema agora usa o Banco de Dados MySQL)*
 ```bash
 rm -rf src/data/mock
@@ -21,16 +35,11 @@ rm src/data/sources.json
 rm src/data/timelineEvents.tsx
 ```
 
-## 3. Conflitos de Tipagem
-```bash
-rm src/contexts/ConfigContext.ts
-# MANTENHA o arquivo ConfigContext.tsx
-```
-
 ## 4. Testes e Desenvolvimento
 ```bash
 rm -rf src/services/__tests__
 rm -rf src/test
+rm src/contexts/ConfigContext.ts # Manter apenas o .tsx
 ```
 
 ## 5. Infraestrutura Antiga

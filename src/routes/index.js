@@ -16,6 +16,7 @@ const dashboardRoutes = require('./dashboardRoutes');
 const domainRoutes = require('./domainRoutes');
 const logRoutes = require('./logRoutes');
 const dataRoutes = require('./dataRoutes');
+const dataSourceRoutes = require('./dataSourceRoutes');
 
 // Definição dos Endpoints (/api/...)
 router.use('/auth', authRoutes);
@@ -28,8 +29,9 @@ router.use('/settings/homepage', homepageRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/ai', aiRoutes);
 router.use('/dashboard', dashboardRoutes);
-router.use('/domain', domainRoutes); // Políticos, Empresas, etc.
+router.use('/domain', domainRoutes);
 router.use('/logs', logRoutes);
 router.use('/data', dataRoutes);
+router.use('/datasources', dataSourceRoutes);
 
 module.exports = router;

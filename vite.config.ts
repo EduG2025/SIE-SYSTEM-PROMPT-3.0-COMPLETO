@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -11,7 +12,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': path.resolve(__dirname, './src'),
     },
   },
   server: {
@@ -36,24 +37,6 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
-      // CRÍTICO: Garante que bibliotecas exclusivas do Node.js não sejam incluídas no bundle do navegador
-      external: [
-        'sequelize',
-        'mysql2',
-        'fs',
-        'path',
-        'os',
-        'crypto',
-        'dotenv',
-        'express',
-        'jsonwebtoken',
-        'bcryptjs',
-        'node-cron',
-        'multer',
-        'adm-zip',
-        'helmet',
-        'compression'
-      ],
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
@@ -64,6 +47,6 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['sequelize', 'mysql2', 'express'] 
+    exclude: ['sequelize', 'mysql2', 'express']
   }
 });
